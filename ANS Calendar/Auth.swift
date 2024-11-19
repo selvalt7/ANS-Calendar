@@ -92,9 +92,60 @@ func Login(user: String, pass: String) async -> LoginResult {
     }
 }
 
+func LoginExistingUser() async {
+    do {
+        if (UserDefaults.standard.bool(forKey: "LoginGood")) {
+            let User = UserDefaults.standard.string(forKey: "Login")
+            // Set query
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrAccount as String: User ?? "",
+                kSecMatchLimit as String: kSecMatchLimitOne,
+                kSecReturnAttributes as String: true,
+                kSecReturnData as String: true,
+            ]
+            var item: CFTypeRef?
+            // Check if user exists in the keychain
+            if SecItemCopyMatching(query as CFDictionary, &item) == noErr {
+                // Extract result
+                if let existingItem = item as? [String: Any],
+                   let username = existingItem[kSecAttrAccount as String] as? String,
+                   let passwordData = existingItem[kSecValueData as String] as? Data,
+                   let password = String(data: passwordData, encoding: .utf8)
+                {
+                    _ = await Login(user: username, pass: password)
+                }
+            } else {
+                print("Something went wrong trying to find the user in the keychain")
+            }
+        }
+    } catch {
+        
+    }
+}
+
+func Logout() {
+    let Username = UserDefaults.standard.string(forKey: "Login")
+    
+    let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrAccount as String: Username,
+    ]
+    
+    if SecItemDelete(query as CFDictionary) == noErr {
+        print("User deleted")
+    } else {
+        print("Failed to delele user")
+    }
+    
+    UserDefaults.standard.set("", forKey: "JSessionID")
+    UserDefaults.standard.set("", forKey: "Login")
+    UserDefaults.standard.set(false, forKey: "LoginGood")
+}
+
 struct ExceptionResponse: Codable {
-    let exceptionClass: String
-    let exceptionMessage: String
+    let exceptionClass: String?
+    let exceptionMessage: String?
 }
 
 func CheckAuthority(SessionID: String) async -> Bool {
@@ -109,7 +160,7 @@ func CheckAuthority(SessionID: String) async -> Bool {
         request.httpBody = "{\"service\":\"Wiadomosc\",\"method\":\"getLiczbaNowychWiadomosci\",\"params\":{}}".data(using: .utf8)
         
         let session = URLSession.shared
-        let (data, response) = try await session.data(for: request)
+        let (data, _) = try await session.data(for: request)
         let parsedJSON: ExceptionResponse = try! JSONDecoder().decode(ExceptionResponse.self, from: data)
         print(request.allHTTPHeaderFields)
         

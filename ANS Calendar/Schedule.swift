@@ -22,38 +22,42 @@ class ScheduleModel: ObservableObject {
     
     func LoadSchedule(date: Date) async throws {
         do {
-            if SemesterID == 0 {
-                let apiurl = URL(string: SchedulePageURL)
-                
-                var request = URLRequest(url: apiurl!)
-                request.httpMethod = "POST"
-                request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
-                request.setValue("JSESSIONID=\(SessionID)", forHTTPHeaderField: "Cookie")
-                
-                let loginData: Data = "idosoby=\(StudentID)&nrtury=\(TourID)".data(using: .utf8)!
-                request.httpBody = loginData
-                
-                let session = URLSession.shared
-                let (data, response) = try await session.data(for: request)
-                let html: String = String(NSString(data: data, encoding: NSUTF8StringEncoding) ?? "")
-                let doc: Document = try SwiftSoup.parse(html)
-                
-                let scripts: Elements = try doc.select("script")
-                
-                var SemesterID = 0
-                
-                let semesterIDRegex = /(idSemestru:)\s(\d+)/
-                for script in scripts {
-                    if let match = try script.data().firstMatch(of: semesterIDRegex) {
-                        SemesterID = NumberFormatter().number(from: String(match.2))!.intValue
-                        UserDefaults.standard.set(SemesterID, forKey: "SemesterID")
-                        break
+            if await (!CheckAuthority(SessionID: SessionID)) {
+                await LoginExistingUser()
+            }
+            else {
+                if SemesterID == 0 {
+                    let apiurl = URL(string: SchedulePageURL)
+                    
+                    var request = URLRequest(url: apiurl!)
+                    request.httpMethod = "POST"
+                    request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
+                    request.setValue("JSESSIONID=\(SessionID)", forHTTPHeaderField: "Cookie")
+                    
+                    let loginData: Data = "idosoby=\(StudentID)&nrtury=\(TourID)".data(using: .utf8)!
+                    request.httpBody = loginData
+                    
+                    let session = URLSession.shared
+                    let (data, response) = try await session.data(for: request)
+                    let html: String = String(NSString(data: data, encoding: NSUTF8StringEncoding) ?? "")
+                    let doc: Document = try SwiftSoup.parse(html)
+                    
+                    let scripts: Elements = try doc.select("script")
+                    
+                    var SemesterID = 0
+                    
+                    let semesterIDRegex = /(idSemestru:)\s(\d+)/
+                    for script in scripts {
+                        if let match = try script.data().firstMatch(of: semesterIDRegex) {
+                            SemesterID = NumberFormatter().number(from: String(match.2))!.intValue
+                            UserDefaults.standard.set(SemesterID, forKey: "SemesterID")
+                            break
+                        }
                     }
                 }
+                
+                Schedules = try await FetchSchedules(semesterID: SemesterID, date: date)
             }
-            
-            Schedules = try await FetchSchedules(semesterID: SemesterID, date: date)
-            
         } catch {
             print("Hmmge")
         }
@@ -99,17 +103,14 @@ struct Schedule: View {
                     
                 }
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    ForEach(model.Schedules) { schedule in ScheduleCard(Schedule: schedule)}
-                }.padding(10)
-            }.task {
-                do {
-                    try await model.LoadSchedule(date: date)
-                } catch {
-                    
+            DayView(date: date, schedules: model.Schedules)
+                .task {
+                    do {
+                        try await model.LoadSchedule(date: date)
+                    } catch {
+                        
+                    }
                 }
-            }
         }
     }
 }
@@ -141,6 +142,7 @@ struct ScheduleInfo: Identifiable, Codable {
 }
 
 struct LessonInfo: Codable {
+    let nrZajec: Int
     let typZajec: String
 }
 
@@ -151,7 +153,8 @@ struct RoomInfo: Codable {
 
 extension ScheduleInfo {
     static let SampleData = [
-        ScheduleInfo(dataRozpoczecia: 1731681900000, dataZakonczenia: 1731690000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", listaIdZajecInstancji: [LessonInfo(typZajec: "co")], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")])
+        ScheduleInfo(dataRozpoczecia: 1731660000000, dataZakonczenia: 1731670000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", listaIdZajecInstancji: [LessonInfo(nrZajec: 1, typZajec: "co")], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")]),
+        ScheduleInfo(dataRozpoczecia: 1731681900000, dataZakonczenia: 1731690000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", listaIdZajecInstancji: [LessonInfo(nrZajec: 1, typZajec: "co")], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")])
     ]
 }
 

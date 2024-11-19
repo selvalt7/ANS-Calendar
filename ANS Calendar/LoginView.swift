@@ -13,23 +13,20 @@ struct LoginView: View {
     @Binding var LoginData: LoginResult
     
     var body: some View {
-        VStack() {
+        VStack(alignment: .center) {
             Form {
                 TextField("Nr. albumu", text: $username)
                     .autocorrectionDisabled(true)
                     .textContentType(.username)
-                    .border(.secondary)
                 SecureField("Hasło", text: $password)
-                    .border(.secondary)
                 Button("Login"){
                     Task {
                         LoginData = await Login(user: username, pass: password)
                     }
                 }
             }
-            
         }
-        .padding()
+        .frame(alignment: .center)
     }
 }
 
@@ -37,7 +34,7 @@ struct LoginView: View {
 
 //<a role="menuitem" href="/ppuz-stud-app/ledge/view/stud.schedule.SchedulePage?idosoby=26998&amp;nrtury=1">Plan zajęć</a>
 
-//#Preview {
-//    @Previewable @State var success = false
-//    LoginView(LoginSucces: $success)
-//}
+#Preview {
+    @Previewable @State var success = LoginResult(Success: false, JSessionID: "", StudentID: 0)
+    LoginView(LoginData: $success)
+}

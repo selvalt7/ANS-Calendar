@@ -19,7 +19,7 @@ struct ANS_CalendarApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
-                if (LoginData.Success) {
+                if (LoginData.Success && CredsValid) {
                     TabbedView()
                 } else {
                     LoginView(LoginData: $LoginData)

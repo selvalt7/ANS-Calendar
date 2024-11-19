@@ -13,16 +13,21 @@ struct TabbedView: View {
     @AppStorage("TourID") var TourID: Int = 0
     var body: some View {
         TabView {
-            Tab("Home", systemImage: "") {
-                Text("Home")
-            }
             Tab("Schedule", systemImage: "") {
                 Schedule()
             }
             Tab("Settings", systemImage: "") {
-                Text(JSessionID)
-                Text(String(StudentID))
-                Text(String(TourID))
+                Form {
+                    Text(JSessionID)
+                    Text(String(StudentID))
+                    Text(String(TourID))
+                    Button("Logout") {
+                        Task {
+                            Logout()
+                        }
+                    }
+                }
+                
             }
         }
     }
