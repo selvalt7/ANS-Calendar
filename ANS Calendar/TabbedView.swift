@@ -8,9 +8,8 @@
 import SwiftUI
 
 struct TabbedView: View {
-    @AppStorage("JSessionID") var JSessionID: String = ""
-    @AppStorage("StudentID") var StudentID: Int = 0
-    @AppStorage("TourID") var TourID: Int = 0
+    @EnvironmentObject var VerbisANSApi: VerbisAPI
+    
     var body: some View {
         TabView {
             Tab("Schedule", systemImage: "") {
@@ -18,12 +17,18 @@ struct TabbedView: View {
             }
             Tab("Settings", systemImage: "") {
                 Form {
-                    Text(JSessionID)
-                    Text(String(StudentID))
-                    Text(String(TourID))
                     Button("Logout") {
                         Task {
-                            Logout()
+                            await VerbisANSApi.Logout()
+                        }
+                    }
+                    Section(header: Text("Debug")) {
+                        Text(VerbisANSApi.JSessionID)
+                        Text(String(VerbisANSApi.StudentID))
+                        Text(String(VerbisANSApi.TourID))
+                        Button("Invalidate SessionID") {
+                            VerbisANSApi.JSessionID = ""
+                            UserDefaults.standard.set("", forKey: "JSessionID")
                         }
                     }
                 }
@@ -35,4 +40,5 @@ struct TabbedView: View {
 
 #Preview {
     TabbedView()
+        .environmentObject(VerbisAPI())
 }

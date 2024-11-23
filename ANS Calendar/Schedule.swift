@@ -13,72 +13,40 @@ let SchedulePageURL = "https://wu.ans-nt.edu.pl/ppuz-stud-app/ledge/view/stud.sc
 @MainActor
 class ScheduleModel: ObservableObject {
     @Published var Schedules: [ScheduleInfo] = []
-    @AppStorage("JSessionID") var SessionID: String = ""
-    @AppStorage("StudentID") var StudentID: Int = 0
-    @AppStorage("TourID") var TourID: Int = 0
-    @AppStorage("SemesterID") var SemesterID: Int = 0
     
-    init() {}
+    init() {
+    }
     
-    func LoadSchedule(date: Date) async throws {
+    func LoadSchedule(VerbisANSApi: VerbisAPI, date: Date) async throws {
         do {
-            if await (!CheckAuthority(SessionID: SessionID)) {
-                await LoginExistingUser()
-            }
-            else {
-                if SemesterID == 0 {
-                    let apiurl = URL(string: SchedulePageURL)
-                    
-                    var request = URLRequest(url: apiurl!)
-                    request.httpMethod = "POST"
-                    request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
-                    request.setValue("JSESSIONID=\(SessionID)", forHTTPHeaderField: "Cookie")
-                    
-                    let loginData: Data = "idosoby=\(StudentID)&nrtury=\(TourID)".data(using: .utf8)!
-                    request.httpBody = loginData
-                    
-                    let session = URLSession.shared
-                    let (data, response) = try await session.data(for: request)
-                    let html: String = String(NSString(data: data, encoding: NSUTF8StringEncoding) ?? "")
-                    let doc: Document = try SwiftSoup.parse(html)
-                    
-                    let scripts: Elements = try doc.select("script")
-                    
-                    var SemesterID = 0
-                    
-                    let semesterIDRegex = /(idSemestru:)\s(\d+)/
-                    for script in scripts {
-                        if let match = try script.data().firstMatch(of: semesterIDRegex) {
-                            SemesterID = NumberFormatter().number(from: String(match.2))!.intValue
-                            UserDefaults.standard.set(SemesterID, forKey: "SemesterID")
-                            break
-                        }
-                    }
-                }
-                
-                Schedules = try await FetchSchedules(semesterID: SemesterID, date: date)
+            if await !VerbisANSApi.CheckAuthority() {
+                try await VerbisANSApi.LoginExistingUser()
+            } else {
+                Schedules = try await FetchSchedules(VerbisANSApi: VerbisANSApi, semesterID: VerbisANSApi.SemesterID, date: date)
             }
         } catch {
             print("Hmmge")
         }
     }
     
-    func FetchSchedules(semesterID: Int, date: Date) async throws -> [ScheduleInfo] {
+    func FetchSchedules(VerbisANSApi: VerbisAPI, semesterID: Int, date: Date) async throws -> [ScheduleInfo] {
         do {
             let url = URL(string: AJAXUrl)
             var request = URLRequest(url: url!)
             request.httpMethod = "POST"
             request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
             request.setValue("*/*", forHTTPHeaderField: "Accept")
-            request.setValue("JSESSIONID=\(SessionID)", forHTTPHeaderField: "Cookie")
+            request.setValue("JSESSIONID=\(VerbisANSApi.JSessionID)", forHTTPHeaderField: "Cookie")
             
-            request.httpBody = "{\"service\":\"Planowanie\",\"method\":\"getUlozoneTerminyOsoby\",\"params\":{\"idOsoby\":\(StudentID),\"idSemestru\":\(semesterID),\"poczatekTygodnia\":\(date.timeIntervalSince1970 * 1000)}}".data(using: .utf8)
+            request.httpBody = "{\"service\":\"Planowanie\",\"method\":\"getUlozoneTerminyOsoby\",\"params\":{\"idOsoby\":\(VerbisANSApi.StudentID),\"idSemestru\":\(semesterID),\"poczatekTygodnia\":\(date.timeIntervalSince1970 * 1000)}}".data(using: .utf8)
             
             let session = URLSession.shared
             let (data, _) = try await session.data(for: request)
+            
             let parsedJSON: AJAXReturn = try! JSONDecoder().decode(AJAXReturn.self, from: data)
+            
             var SchedulesToday: [ScheduleInfo] = []
-            for schedule in parsedJSON.returnedValue.items {
+            for schedule in parsedJSON.returnedValue!.items {
                 if Calendar.current.isDate(date, equalTo: Date(timeIntervalSince1970: Double(schedule.dataRozpoczecia / 1000)), toGranularity: .day) {
                     SchedulesToday.append(schedule)
                 }
@@ -92,21 +60,30 @@ class ScheduleModel: ObservableObject {
 }
 
 struct Schedule: View {
+    @EnvironmentObject var VerbisANSApi: VerbisAPI
     @State private var date = Date()
     @StateObject var model = ScheduleModel()
+    
     var body: some View {
         VStack {
             DatePicker("Schedule day", selection: $date, displayedComponents: [.date]).task(id: date, priority: .userInitiated) {
                 do {
-                    try await model.LoadSchedule(date: date)
+                    try await model.LoadSchedule(VerbisANSApi: VerbisANSApi, date: date)
                 } catch {
                     
                 }
             }
             DayView(date: date, schedules: model.Schedules)
+                .refreshable {
+                    do {
+                        try await model.LoadSchedule(VerbisANSApi: VerbisANSApi, date: date)
+                    } catch {
+                        
+                    }
+                }
                 .task {
                     do {
-                        try await model.LoadSchedule(date: date)
+                        try await model.LoadSchedule(VerbisANSApi: VerbisANSApi, date: date)
                     } catch {
                         
                     }
@@ -116,7 +93,8 @@ struct Schedule: View {
 }
 
 struct AJAXReturn: Codable {
-    let returnedValue: ReturnedValueObject
+    let exceptionClass: String?
+    let returnedValue: ReturnedValueObject?
 }
 
 struct ReturnedValueObject: Codable {

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		86A61BB42CE8B0D2004EFF93 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 86A61BB32CE8B0D2004EFF93 /* SwiftSoup */; };
+		86DF0F9C2CF1FF1200619F88 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 86DF0F9B2CF1FF1200619F88 /* README.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -31,6 +32,7 @@
 		8621B01E2CE76C7700B6F264 /* ANS Calendar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "ANS Calendar.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		8621B02E2CE76C7800B6F264 /* ANS CalendarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "ANS CalendarTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		8621B0382CE76C7800B6F264 /* ANS CalendarUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "ANS CalendarUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		86DF0F9B2CF1FF1200619F88 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -80,6 +82,7 @@
 		8621B0152CE76C7700B6F264 = {
 			isa = PBXGroup;
 			children = (
+				86DF0F9B2CF1FF1200619F88 /* README.md */,
 				8621B0202CE76C7700B6F264 /* ANS Calendar */,
 				8621B0312CE76C7800B6F264 /* ANS CalendarTests */,
 				8621B03B2CE76C7800B6F264 /* ANS CalendarUITests */,
@@ -221,6 +224,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				86DF0F9C2CF1FF1200619F88 /* README.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

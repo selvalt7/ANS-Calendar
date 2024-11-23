@@ -10,7 +10,7 @@ import SwiftUI
 struct LoginView: View {
     @State private var username: String = ""
     @State private var password: String = ""
-    @Binding var LoginData: LoginResult
+    @EnvironmentObject var VerbisANSApi: VerbisAPI
     
     var body: some View {
         VStack(alignment: .center) {
@@ -21,7 +21,9 @@ struct LoginView: View {
                 SecureField("Hasło", text: $password)
                 Button("Login"){
                     Task {
-                        LoginData = await Login(user: username, pass: password)
+                        try await VerbisANSApi.Login(user: username, pass: password)
+                        
+                        print(VerbisANSApi.JSessionID)
                     }
                 }
             }
@@ -30,11 +32,7 @@ struct LoginView: View {
     }
 }
 
-
-
-//<a role="menuitem" href="/ppuz-stud-app/ledge/view/stud.schedule.SchedulePage?idosoby=26998&amp;nrtury=1">Plan zajęć</a>
-
 #Preview {
-    @Previewable @State var success = LoginResult(Success: false, JSessionID: "", StudentID: 0)
-    LoginView(LoginData: $success)
+    LoginView()
+        .environmentObject(VerbisAPI())
 }

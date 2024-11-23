@@ -49,8 +49,8 @@ struct ScheduleCard: View {
         .frame(maxWidth: .infinity)
         .frame(height: Height, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 5).fill(.blue).opacity(0.5))
-        .padding(.trailing, 30)
-        .offset(x: 30, y: Offset)
+        .padding(.trailing, 60)
+        .offset(x: 60, y: Offset)
     }
 }
 
