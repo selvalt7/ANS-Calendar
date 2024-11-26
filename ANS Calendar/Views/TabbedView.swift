@@ -12,10 +12,10 @@ struct TabbedView: View {
     
     var body: some View {
         TabView {
-            Tab("Schedule", systemImage: "") {
-                Schedule()
+            Tab("Schedule", systemImage: "calendar") {
+                ScheduleView()
             }
-            Tab("Settings", systemImage: "") {
+            Tab("Settings", systemImage: "slider.horizontal.3") {
                 Form {
                     Button("Logout") {
                         Task {

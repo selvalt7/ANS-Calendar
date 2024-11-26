@@ -51,6 +51,11 @@
 			path = "ANS CalendarUITests";
 			sourceTree = "<group>";
 		};
+		864254E92CF6761D0006500A /* Images */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Images;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -82,6 +87,7 @@
 		8621B0152CE76C7700B6F264 = {
 			isa = PBXGroup;
 			children = (
+				864254E92CF6761D0006500A /* Images */,
 				86DF0F9B2CF1FF1200619F88 /* README.md */,
 				8621B0202CE76C7700B6F264 /* ANS Calendar */,
 				8621B0312CE76C7800B6F264 /* ANS CalendarTests */,
@@ -117,6 +123,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				8621B0202CE76C7700B6F264 /* ANS Calendar */,
+				864254E92CF6761D0006500A /* Images */,
 			);
 			name = "ANS Calendar";
 			packageProductDependencies = (

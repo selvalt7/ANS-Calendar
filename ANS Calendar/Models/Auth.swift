@@ -214,16 +214,12 @@ class VerbisAPI: ObservableObject {
             request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
             request.setValue("*/*", forHTTPHeaderField: "Accept")
             request.setValue("JSESSIONID=\(JSessionID)", forHTTPHeaderField: "Cookie")
-            
-            print(JSessionID)
 
             request.httpBody = "{\"service\":\"Planowanie\",\"method\":\"getWykladowcy\",\"params\":{\"itemIdList\":[\"r0\"]}}".data(using: .utf8)
             
             let session = URLSession.shared
             let (data, _) = try await session.data(for: request)
             let parsedJSON: ExceptionResponse = try JSONDecoder().decode(ExceptionResponse.self, from: data)
-            
-            print(parsedJSON.exceptionClass)
             
             if (parsedJSON.exceptionClass == "org.objectledge.web.mvc.security.LoginRequiredException") {
                 return false

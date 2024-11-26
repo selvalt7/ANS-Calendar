@@ -27,7 +27,7 @@ struct ScheduleCard: View {
         startHour = Date().GetDateComponent(Date: StartDate, Component: .hour)
         startMinute = Date().GetDateComponent(Date: StartDate, Component: .minute)
         
-        Offset = (Double(startHour - 6) * hourHeight) + ((Double(startMinute) / 60) * hourHeight)
+        Offset = (Double(startHour - 7) * hourHeight) + ((Double(startMinute) / 60) * hourHeight)
         
         Duration = EndDate.timeIntervalSince(StartDate)
         Height = (Duration / 60 / 60) * hourHeight

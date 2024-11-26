@@ -10,19 +10,67 @@ import SwiftSoup
 
 let SchedulePageURL = "https://wu.ans-nt.edu.pl/ppuz-stud-app/ledge/view/stud.schedule.SchedulePage"
 
+struct Week: Identifiable {
+    let id = UUID()
+    var Days: [Date]
+}
+
 @MainActor
 class ScheduleModel: ObservableObject {
     @Published var Schedules: [ScheduleInfo] = []
+    @Published var SelectedDay: Date
+    @Published var SelectedWeek: Date
+    @Published var Weeks: [Week] = .init()
     
     init() {
+        self.SelectedDay = Date()
+        self.SelectedWeek = Date().startOfWeek()
+        SetupWeeks(for: SelectedDay)
     }
     
-    func LoadSchedule(VerbisANSApi: VerbisAPI, date: Date) async throws {
+    private func SetupWeeks(for date: Date) {
+        Weeks = [
+            FillDays(with: Calendar.current.date(byAdding: .day, value: -7, to: SelectedDay)!),
+            FillDays(with: SelectedDay),
+            FillDays(with: Calendar.current.date(byAdding: .day, value: 7, to: SelectedDay)!)
+        ]
+    }
+    
+    private func FillDays(with date: Date) -> Week {
+        var days: [Date] = .init()
+        
+        (0...6).forEach({ day in
+            let day = Calendar.current.date(byAdding: .day, value: day, to: date.startOfWeek())!
+            days.append(day)
+        })
+        
+        return .init(Days: days)
+    }
+    
+    func SelectDay(day: Date) {
+        SelectedDay = day
+    }
+    
+    func ShiftWeeks(dir: Int) {
+        if (dir == -1) {
+            SelectDay(day: Calendar.current.date(byAdding: .day, value: -7, to: SelectedDay)!)
+        }
+        
+        if (dir == 1) {
+            SelectDay(day: Calendar.current.date(byAdding: .day, value: 7, to: SelectedDay)!)
+        }
+        
+        SelectedWeek = SelectedDay.startOfWeek()
+        
+        SetupWeeks(for: SelectedDay)
+    }
+    
+    func LoadSchedule(VerbisANSApi: VerbisAPI) async throws {
         do {
             if await !VerbisANSApi.CheckAuthority() {
                 try await VerbisANSApi.LoginExistingUser()
             } else {
-                Schedules = try await FetchSchedules(VerbisANSApi: VerbisANSApi, semesterID: VerbisANSApi.SemesterID, date: date)
+                Schedules = try await FetchSchedules(VerbisANSApi: VerbisANSApi, semesterID: VerbisANSApi.SemesterID, date: SelectedWeek)
             }
         } catch {
             print("Hmmge")
@@ -45,49 +93,11 @@ class ScheduleModel: ObservableObject {
             
             let parsedJSON: AJAXReturn = try! JSONDecoder().decode(AJAXReturn.self, from: data)
             
-            var SchedulesToday: [ScheduleInfo] = []
-            for schedule in parsedJSON.returnedValue!.items {
-                if Calendar.current.isDate(date, equalTo: Date(timeIntervalSince1970: Double(schedule.dataRozpoczecia / 1000)), toGranularity: .day) {
-                    SchedulesToday.append(schedule)
-                }
-            }
+            let SchedulesToday: [ScheduleInfo] = parsedJSON.returnedValue!.items
             
             return SchedulesToday.sorted { $0.dataRozpoczecia < $1.dataRozpoczecia }
         } catch {
             return ScheduleInfo.SampleData
-        }
-    }
-}
-
-struct Schedule: View {
-    @EnvironmentObject var VerbisANSApi: VerbisAPI
-    @State private var date = Date()
-    @StateObject var model = ScheduleModel()
-    
-    var body: some View {
-        VStack {
-            DatePicker("Schedule day", selection: $date, displayedComponents: [.date]).task(id: date, priority: .userInitiated) {
-                do {
-                    try await model.LoadSchedule(VerbisANSApi: VerbisANSApi, date: date)
-                } catch {
-                    
-                }
-            }
-            DayView(date: date, schedules: model.Schedules)
-                .refreshable {
-                    do {
-                        try await model.LoadSchedule(VerbisANSApi: VerbisANSApi, date: date)
-                    } catch {
-                        
-                    }
-                }
-                .task {
-                    do {
-                        try await model.LoadSchedule(VerbisANSApi: VerbisANSApi, date: date)
-                    } catch {
-                        
-                    }
-                }
         }
     }
 }
@@ -134,8 +144,4 @@ extension ScheduleInfo {
         ScheduleInfo(dataRozpoczecia: 1731660000000, dataZakonczenia: 1731670000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", listaIdZajecInstancji: [LessonInfo(nrZajec: 1, typZajec: "co")], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")]),
         ScheduleInfo(dataRozpoczecia: 1731681900000, dataZakonczenia: 1731690000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", listaIdZajecInstancji: [LessonInfo(nrZajec: 1, typZajec: "co")], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")])
     ]
-}
-
-#Preview {
-    Schedule()
 }
