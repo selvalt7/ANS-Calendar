@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct ScheduleCard: View {
+    @State private var isShowingSheet = false
     let Schedule: ScheduleInfo
     var startHour: Int
     var startMinute: Int
@@ -81,6 +82,50 @@ struct ScheduleCard: View {
         .background(RoundedRectangle(cornerRadius: 5).fill(.blue).opacity(0.5))
         .padding(.trailing, 65)
         .offset(x: 60, y: Offset)
+        .onTapGesture {
+            isShowingSheet.toggle()
+        }
+        .sheet(isPresented: $isShowingSheet) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text(Schedule.nazwaPelnaPrzedmiotu)
+                        .font(.title)
+                    Spacer()
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Color.secondary)
+                        .font(.system(size: 20))
+                        .opacity(0.8)
+                        .onTapGesture {
+                            isShowingSheet.toggle()
+                        }
+                }
+                Divider()
+                VStack(alignment: .leading) {
+                    Text("Room")
+                        .font(.caption)
+                        .foregroundStyle(Color.secondary)
+                    HStack {
+                        Image(systemName: "door.left.hand.open")
+                            .foregroundStyle(.secondary)
+                        Text(Schedule.sale[0].nazwaSkrocona)
+                    }
+                }
+                VStack(alignment: .leading) {
+                    Text("Lecturer")
+                        .font(.caption)
+                        .foregroundStyle(Color.secondary)
+                    HStack {
+                        Image(systemName: "person.fill")
+                            .foregroundStyle(.secondary)
+                        Text(Schedule.wykladowcy[0].stopienImieNazwisko)
+                    }
+                }
+                Spacer()
+            }
+            .padding(20)
+            .presentationDetents([.medium])
+            .frame(alignment: .top)
+        }
     }
 }
 
