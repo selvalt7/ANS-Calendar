@@ -122,7 +122,8 @@ struct ScheduleInfo: Identifiable, Codable {
     let dataRozpoczecia: Int
     let dataZakonczenia: Int
     let nazwaPelnaPrzedmiotu: String
-    let listaIdZajecInstancji: [LessonInfo]
+    let grupyZajeciowe: [LessonInfo]
+    let grupySprawdzianu: [ExamInfo]
     let sale: [RoomInfo]
     let wykladowcy: [LecturerInfo]
     
@@ -130,15 +131,20 @@ struct ScheduleInfo: Identifiable, Codable {
         case dataRozpoczecia
         case dataZakonczenia
         case nazwaPelnaPrzedmiotu
-        case listaIdZajecInstancji
+        case grupyZajeciowe
+        case grupySprawdzianu
         case sale
         case wykladowcy
     }
 }
 
 struct LessonInfo: Codable {
-    let nrZajec: Int
-    let typZajec: String
+    let nazwaGrupyZajeciowej: String
+}
+
+struct ExamInfo: Codable {
+    let nazwaGrupySprawdzianu: String
+    let nazwaSkroconaGrupySprawdzianu: String
 }
 
 struct RoomInfo: Codable {
@@ -148,7 +154,7 @@ struct RoomInfo: Codable {
 
 extension ScheduleInfo {
     static let SampleData = [
-        ScheduleInfo(dataRozpoczecia: 1731660000000, dataZakonczenia: 1731670000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", listaIdZajecInstancji: [LessonInfo(nrZajec: 1, typZajec: "co")], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")], wykladowcy: [LecturerInfo(idProwadzacego: 1, stopienImieNazwisko: "mgr. Jan Kowalski")]),
-        ScheduleInfo(dataRozpoczecia: 1731681900000, dataZakonczenia: 1731690000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", listaIdZajecInstancji: [LessonInfo(nrZajec: 1, typZajec: "co")], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")], wykladowcy: [LecturerInfo(idProwadzacego: 1, stopienImieNazwisko: "mgr. Jan Kowalski")])
+        ScheduleInfo(dataRozpoczecia: 1731660000000, dataZakonczenia: 1731670000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", grupyZajeciowe: [LessonInfo(nazwaGrupyZajeciowej: "co")], grupySprawdzianu: [], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")], wykladowcy: [LecturerInfo(idProwadzacego: 1, stopienImieNazwisko: "mgr. Jan Kowalski")]),
+        ScheduleInfo(dataRozpoczecia: 1731681900000, dataZakonczenia: 1731690000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", grupyZajeciowe: [LessonInfo(nazwaGrupyZajeciowej: "co")], grupySprawdzianu: [ExamInfo(nazwaGrupySprawdzianu: "Awesome exam", nazwaSkroconaGrupySprawdzianu: "AE")], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")], wykladowcy: [LecturerInfo(idProwadzacego: 1, stopienImieNazwisko: "mgr. Jan Kowalski")])
     ]
 }

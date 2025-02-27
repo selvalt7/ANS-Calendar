@@ -16,6 +16,8 @@ struct ScheduleCard: View {
     var StartDate: Date
     var EndDate: Date
     var Height: Double
+    let isExam: Bool
+    let groupName: String
     
     init(Schedule: ScheduleInfo) {
         self.Schedule = Schedule
@@ -31,6 +33,14 @@ struct ScheduleCard: View {
         
         Duration = EndDate.timeIntervalSince(StartDate)
         Height = (Duration / 60 / 60) * hourHeight
+        
+        isExam = Schedule.grupySprawdzianu.count > 0
+        
+        if isExam {
+            groupName = Schedule.grupySprawdzianu[0].nazwaSkroconaGrupySprawdzianu
+        } else {
+            groupName = Schedule.grupyZajeciowe[0].nazwaGrupyZajeciowej
+        }
     }
     
     var body: some View {
@@ -39,7 +49,7 @@ struct ScheduleCard: View {
                 HStack {
                     Text(Schedule.nazwaPelnaPrzedmiotu)
                         .font(.headline)
-                    Text("\(Schedule.listaIdZajecInstancji[0].typZajec)\(Schedule.listaIdZajecInstancji[0].nrZajec)")
+                    Text(groupName)
                     Spacer()
                 }
                 HStack {
