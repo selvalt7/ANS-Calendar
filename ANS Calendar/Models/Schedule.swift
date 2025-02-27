@@ -112,6 +112,11 @@ struct ReturnedValueObject: Codable {
     let items: [ScheduleInfo]
 }
 
+struct LecturerInfo: Codable {
+    let idProwadzacego: Int
+    let stopienImieNazwisko: String
+}
+
 struct ScheduleInfo: Identifiable, Codable {
     let id = UUID()
     let dataRozpoczecia: Int
@@ -119,6 +124,7 @@ struct ScheduleInfo: Identifiable, Codable {
     let nazwaPelnaPrzedmiotu: String
     let listaIdZajecInstancji: [LessonInfo]
     let sale: [RoomInfo]
+    let wykladowcy: [LecturerInfo]
     
     private enum CodingKeys: String, CodingKey {
         case dataRozpoczecia
@@ -126,6 +132,7 @@ struct ScheduleInfo: Identifiable, Codable {
         case nazwaPelnaPrzedmiotu
         case listaIdZajecInstancji
         case sale
+        case wykladowcy
     }
 }
 
@@ -141,7 +148,7 @@ struct RoomInfo: Codable {
 
 extension ScheduleInfo {
     static let SampleData = [
-        ScheduleInfo(dataRozpoczecia: 1731660000000, dataZakonczenia: 1731670000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", listaIdZajecInstancji: [LessonInfo(nrZajec: 1, typZajec: "co")], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")]),
-        ScheduleInfo(dataRozpoczecia: 1731681900000, dataZakonczenia: 1731690000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", listaIdZajecInstancji: [LessonInfo(nrZajec: 1, typZajec: "co")], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")])
+        ScheduleInfo(dataRozpoczecia: 1731660000000, dataZakonczenia: 1731670000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", listaIdZajecInstancji: [LessonInfo(nrZajec: 1, typZajec: "co")], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")], wykladowcy: [LecturerInfo(idProwadzacego: 1, stopienImieNazwisko: "mgr. Jan Kowalski")]),
+        ScheduleInfo(dataRozpoczecia: 1731681900000, dataZakonczenia: 1731690000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", listaIdZajecInstancji: [LessonInfo(nrZajec: 1, typZajec: "co")], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")], wykladowcy: [LecturerInfo(idProwadzacego: 1, stopienImieNazwisko: "mgr. Jan Kowalski")])
     ]
 }

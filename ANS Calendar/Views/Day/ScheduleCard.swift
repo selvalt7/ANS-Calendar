@@ -34,22 +34,42 @@ struct ScheduleCard: View {
     }
     
     var body: some View {
-        VStack() {
-            HStack {
-                Text(Schedule.nazwaPelnaPrzedmiotu)
-                    .font(.headline)
-                Text("\(Schedule.listaIdZajecInstancji[0].typZajec)\(Schedule.listaIdZajecInstancji[0].nrZajec)")
+        HStack() {
+            VStack() {
+                HStack {
+                    Text(Schedule.nazwaPelnaPrzedmiotu)
+                        .font(.headline)
+                    Text("\(Schedule.listaIdZajecInstancji[0].typZajec)\(Schedule.listaIdZajecInstancji[0].nrZajec)")
+                    Spacer()
+                }
+                HStack {
+                    Image(systemName: "clock")
+                        .foregroundStyle(.secondary)
+                    Text(Date(timeIntervalSince1970: Double(Schedule.dataRozpoczecia / 1000)).formatted(date: .omitted, time: .shortened))
+                    Text("-")
+                    Text(Date(timeIntervalSince1970: Double(Schedule.dataZakonczenia / 1000)).formatted(date: .omitted, time: .shortened))
+                    Spacer()
+                }
+                HStack {
+                    Image(systemName: "door.left.hand.open")
+                        .foregroundStyle(.secondary)
+                    Text(Schedule.sale[0].nazwaSkrocona)
+                    Spacer()
+                }
+                HStack() {
+                    Image(systemName: "person.fill")
+                        .foregroundStyle(.secondary)
+                    Text(Schedule.wykladowcy[0].stopienImieNazwisko)
+                    Spacer()
+                }
             }
-            HStack {
-                Text(Date(timeIntervalSince1970: Double(Schedule.dataRozpoczecia / 1000)).formatted(date: .omitted, time: .shortened))
-                Text(Date(timeIntervalSince1970: Double(Schedule.dataZakonczenia / 1000)).formatted(date: .omitted, time: .shortened))
-            }
-            Text(Schedule.sale[0].nazwaSkrocona)
+            .padding(4)
+            .frame(height: Height, alignment: .top)
         }
         .frame(maxWidth: .infinity)
         .frame(height: Height, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 5).fill(.blue).opacity(0.5))
-        .padding(.trailing, 60)
+        .padding(.trailing, 65)
         .offset(x: 60, y: Offset)
     }
 }
