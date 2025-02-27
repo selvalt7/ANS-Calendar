@@ -12,6 +12,7 @@ struct TabbedDay<Content: View>: View {
     @EnvironmentObject var VerbisAPI: VerbisAPI
     @State private var selectedPage: Int = 1
     @State private var dir: Int = 0
+    @State private var offset: CGFloat = CGFloat.zero
     
     let content: (_ date: Date) -> Content
     
@@ -22,9 +23,31 @@ struct TabbedDay<Content: View>: View {
     var body: some View {
         VStack {
             TabView(selection: $selectedPage) {
-                content(model.SelectedDay.Yesterday)
+                VStack(spacing: 0) {
+                    Text(model.SelectedDay.Yesterday.formatted(date: .abbreviated, time: .omitted))
+                        .padding(8)
+                    Divider()
+                    ScrollView {
+                        content(model.SelectedDay.Yesterday)
+                            .offset(y: offset)
+                    }
+                }
                     .tag(0)
-                content(model.SelectedDay)
+                VStack(spacing: 0) {
+                    Text(model.SelectedDay.formatted(date: .abbreviated, time: .omitted))
+                        .padding(8)
+                    Divider()
+                    ScrollView {
+                        content(model.SelectedDay)
+                            .background(GeometryReader { proxy -> Color in
+                                DispatchQueue.main.async {
+                                    offset = proxy.frame(in: .named("scroll")).origin.y
+                                }
+                                return Color.clear
+                            })
+                    }
+                    .coordinateSpace(.named("scroll"))
+                }
                     .tag(1)
                     .onDisappear() {
                         if dir != 0 {
@@ -45,7 +68,15 @@ struct TabbedDay<Content: View>: View {
                         dir = 0
                         selectedPage = 1
                     }
-                content(model.SelectedDay.Tomorrow)
+                VStack(spacing: 0) {
+                    Text(model.SelectedDay.Tomorrow.formatted(date: .abbreviated, time: .omitted))
+                        .padding(8)
+                    Divider()
+                    ScrollView {
+                        content(model.SelectedDay.Tomorrow)
+                            .offset(y: offset)
+                    }
+                }
                     .tag(2)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
