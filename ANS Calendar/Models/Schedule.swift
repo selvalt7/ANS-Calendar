@@ -8,7 +8,7 @@
 import SwiftUI
 import SwiftSoup
 
-let SchedulePageURL = "https://wu.ans-nt.edu.pl/ppuz-stud-app/ledge/view/stud.schedule.SchedulePage"
+let SchedulePageURL = "stud.schedule.SchedulePage"
 
 struct Week: Identifiable {
     let id = UUID()
@@ -79,14 +79,7 @@ class ScheduleModel: ObservableObject {
     
     func FetchSchedules(VerbisANSApi: VerbisAPI, semesterID: Int, date: Date) async throws -> [ScheduleInfo] {
         do {
-            let url = URL(string: AJAXUrl)
-            var request = URLRequest(url: url!)
-            request.httpMethod = "POST"
-            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
-            request.setValue("*/*", forHTTPHeaderField: "Accept")
-            request.setValue("JSESSIONID=\(VerbisANSApi.JSessionID)", forHTTPHeaderField: "Cookie")
-            
-            request.httpBody = "{\"service\":\"Planowanie\",\"method\":\"getUlozoneTerminyOsoby\",\"params\":{\"idOsoby\":\(VerbisANSApi.StudentID),\"idSemestru\":\(semesterID),\"poczatekTygodnia\":\(date.timeIntervalSince1970 * 1000)}}".data(using: .utf8)
+            let request = VerbisANSApi.InitAJAXRequest(Service: "Planowanie", Method: "getUlozoneTerminyOsoby", Params: "\"idOsoby\":\(VerbisANSApi.StudentID),\"idSemestru\":\(semesterID),\"poczatekTygodnia\":\(date.timeIntervalSince1970 * 1000)")
             
             let session = URLSession.shared
             let (data, _) = try await session.data(for: request)

@@ -9,9 +9,9 @@ import Foundation
 import Security
 import SwiftSoup
 
-let LoginUrl = "https://wu.ans-nt.edu.pl/ppuz-stud-app/ledge/view/stud.StartPage?action=security.authentication.ImapLogin"
-let LogoutUrl = "https://wu.ans-nt.edu.pl/ppuz-stud-app/ledge/view/stud.StartPage?action=security.authentication.Logout"
-let AJAXUrl = "https://wu.ans-nt.edu.pl/ppuz-stud-app/ledge/view/AJAX"
+let BaseUrl = "https://wu.ans-nt.edu.pl/ppuz-stud-app/ledge/view/"
+let LoginUrl = "stud.StartPage?action=security.authentication.ImapLogin"
+let LogoutUrl = "stud.StartPage?action=security.authentication.Logout"
 
 enum VerbisAPIError: Error {
     case BadPassword
@@ -60,15 +60,10 @@ class VerbisAPI: ObservableObject {
             guard !user.isEmpty else {
                 throw VerbisAPIError.NoUser
             }
+            let apiurl = URL(string: BaseUrl+LoginUrl)
+            let loginData = "login=\(user)&password=\(pass)"
             
-            let apiurl = URL(string: LoginUrl)
-            
-            var request = URLRequest(url: apiurl!)
-            request.httpMethod = "POST"
-            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
-            
-            let loginData: Data = "login=\(user)&password=\(pass)".data(using: .utf8)!
-            request.httpBody = loginData
+            var request = InitRequest(EndUrl: LoginUrl, UrlData: loginData)
             
             let session = URLSession.shared
             
@@ -142,17 +137,31 @@ class VerbisAPI: ObservableObject {
         }
     }
     
+    func InitRequest(EndUrl: String, UrlData: String = "") -> URLRequest {
+        let url = URL(string: BaseUrl+EndUrl)
+        var request = URLRequest(url: url!)
+        
+        request.httpMethod = "POST"
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue("JSESSIONID=\(JSessionID)", forHTTPHeaderField: "Cookie")
+        
+        request.httpBody = UrlData.data(using: .utf8)
+        
+        return request
+    }
+    
+    func InitAJAXRequest(Service: String, Method: String, Params: String = "") -> URLRequest {
+        var request = InitRequest(EndUrl: "AJAX")
+        request.httpBody = "{\"service\":\"\(Service)\",\"method\":\"\(Method)\",\"params\":{\(Params)}}".data(using: .utf8)
+        
+        return request
+    }
+    
     func GetSemesterID() async {
         do {
-            let apiurl = URL(string: SchedulePageURL)
-            
-            var request = URLRequest(url: apiurl!)
-            request.httpMethod = "POST"
-            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
-            request.setValue("JSESSIONID=\(JSessionID)", forHTTPHeaderField: "Cookie")
-            
-            let loginData: Data = "idosoby=\(StudentID)&nrtury=\(TourID)".data(using: .utf8)!
-            request.httpBody = loginData
+            let loginData = "idosoby=\(StudentID)&nrtury=\(TourID)"
+            var request = InitRequest(EndUrl: SchedulePageURL, UrlData: loginData)
             
             let session = URLSession.shared
             let (data, response) = try await session.data(for: request)
@@ -208,14 +217,7 @@ class VerbisAPI: ObservableObject {
     
     func CheckAuthority() async -> Bool {
         do {
-            let url = URL(string: AJAXUrl)
-            var request = URLRequest(url: url!)
-            request.httpMethod = "POST"
-            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
-            request.setValue("*/*", forHTTPHeaderField: "Accept")
-            request.setValue("JSESSIONID=\(JSessionID)", forHTTPHeaderField: "Cookie")
-
-            request.httpBody = "{\"service\":\"Planowanie\",\"method\":\"getWykladowcy\",\"params\":{\"itemIdList\":[\"r0\"]}}".data(using: .utf8)
+            var request = InitAJAXRequest(Service: "Planowanie", Method: "getWykladowcy", Params: "\"itemIdList\":[\"r0\"]")
             
             let session = URLSession.shared
             let (data, _) = try await session.data(for: request)
@@ -245,15 +247,10 @@ class VerbisAPI: ObservableObject {
                 print("Failed to delele user")
             }
             
-            let url = URL(string: LogoutUrl)
-            var request = URLRequest(url: url!)
-            request.httpMethod = "GET"
-            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
-            request.setValue("*/*", forHTTPHeaderField: "Accept")
-            request.setValue("JSESSIONID=\(JSessionID)", forHTTPHeaderField: "Cookie")
+            var request = InitRequest(EndUrl: LogoutUrl)
             
             let session = URLSession.shared
-            let (data, _) = try await session.data(for: request)
+            let (_, _) = try await session.data(for: request)
             
             JSessionID = ""
             TourID = 0
