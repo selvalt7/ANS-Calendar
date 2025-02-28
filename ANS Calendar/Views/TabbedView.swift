@@ -9,11 +9,17 @@ import SwiftUI
 
 struct TabbedView: View {
     @EnvironmentObject var VerbisANSApi: VerbisAPI
+    @StateObject var Messages = MessagesModel()
     
     var body: some View {
         TabView {
             Tab("Schedule", systemImage: "calendar") {
                 ScheduleView()
+            }
+            Tab("Messages", systemImage: "envelope") {
+                MessagesView()
+                    .environmentObject(Messages)
+                    .environmentObject(VerbisANSApi)
             }
             Tab("Settings", systemImage: "slider.horizontal.3") {
                 Form {
