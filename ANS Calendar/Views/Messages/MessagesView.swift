@@ -18,6 +18,8 @@ struct MessagesView: View {
                     MessageDetail(Message: Message)
                 } label: {
                     MessageRow(Message: Message)
+                        .environmentObject(Messages)
+                        .environmentObject(VerbisANSApi)
                 }
             }
             .listStyle(.plain)

@@ -28,5 +28,5 @@ struct MessageRow: View {
 }
 
 #Preview {
-    MessageRow(Message: Message(Sender: "Joe Doe", Title: "Important notice", Content: "Lorem ipsum", Unread: false))
+    MessageRow(Message: MessagesModel().Placeholder[0])
 }

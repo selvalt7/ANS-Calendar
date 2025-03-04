@@ -63,7 +63,7 @@ class VerbisAPI: ObservableObject {
             let apiurl = URL(string: BaseUrl+LoginUrl)
             let loginData = "login=\(user)&password=\(pass)"
             
-            var request = InitRequest(EndUrl: LoginUrl, UrlData: loginData)
+            let request = InitRequest(EndUrl: LoginUrl, UrlData: loginData)
             
             let session = URLSession.shared
             

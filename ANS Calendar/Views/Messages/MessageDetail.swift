@@ -8,7 +8,15 @@
 import SwiftUI
 
 struct MessageDetail: View {
+    @EnvironmentObject var MessagesModel: MessagesModel
+    @EnvironmentObject var VerbisAnsAPI: VerbisAPI
     let Message: Message
+    @State private var Thread: [MessageContent]
+    
+    init(Message: Message) {
+        self.Message = Message
+        self.Thread = []
+    }
     
     var body: some View {
         ScrollView {
@@ -19,16 +27,31 @@ struct MessageDetail: View {
                 VStack(alignment: .leading, spacing: 25) {
                     Text(Message.Title)
                         .font(.title)
-                    Text(Message.Content)
-                        .textSelection(.enabled)
                 }
-                Spacer()
             }
-            .padding()
+            ForEach(Thread) { thread in
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(0..<thread.Content.count) { paragraphId in
+                        Text(.init(thread.Content[paragraphId]))
+                    }
+                    VStack(alignment: .leading) {
+                        ForEach(thread.Attachments) { Attachment in
+                            MessageAttachment(MessageAttachment: Attachment)
+                        }
+                    }
+                }
+            }
+            
         }
+        .task {
+            await Thread = MessagesModel.FetchMessage(VerbisAnsAPI: VerbisAnsAPI, MessageData: Message.MessageData)
+        }
+        .padding()
     }
 }
 
 #Preview {
-    MessageDetail(Message: Message(Sender: "Joe Doe", Title: "Important notice", Content: "Lorem ipsum", Unread: false))
+    MessageDetail(Message: MessagesModel().Placeholder[0])
+        .environmentObject(MessagesModel())
+        .environmentObject(VerbisAPI())
 }
