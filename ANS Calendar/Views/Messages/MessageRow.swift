@@ -16,8 +16,13 @@ struct MessageRow: View {
                 .frame(width: 10)
                 .opacity(Message.Unread ? 1 : 0)
             VStack(alignment: .leading) {
-                Text(Message.Sender)
-                    .font(.headline)
+                HStack {
+                    Text(Message.Sender)
+                        .font(.headline)
+                    Spacer()
+                    Text(Message.Date.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption)
+                }
                 Text(Message.Title)
                     .font(.subheadline)
             }

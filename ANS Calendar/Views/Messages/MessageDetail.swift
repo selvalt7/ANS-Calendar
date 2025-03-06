@@ -19,34 +19,41 @@ struct MessageDetail: View {
     }
     
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(Message.Sender)
-                    .font(.headline)
-                Divider()
-                VStack(alignment: .leading, spacing: 25) {
+        ZStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
                     Text(Message.Title)
                         .font(.title)
-                }
-            }
-            ForEach(Thread) { thread in
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(0..<thread.Content.count) { paragraphId in
-                        Text(.init(thread.Content[paragraphId]))
-                    }
-                    VStack(alignment: .leading) {
-                        ForEach(thread.Attachments) { Attachment in
-                            MessageAttachment(MessageAttachment: Attachment)
+                        .padding()
+                    ForEach(Thread) { thread in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(thread.Sender)
+                                .font(.headline)
+                            Divider()
+                            ForEach(0..<thread.Content.count) { paragraphId in
+                                Text(.init(thread.Content[paragraphId]))
+                            }
+                            VStack(alignment: .leading) {
+                                ForEach(thread.Attachments) { Attachment in
+                                    MessageAttachment(MessageAttachment: Attachment)
+                                        .environmentObject(VerbisAnsAPI)
+                                }
+                            }
                         }
+                        .padding()
+                        .background(Color(UIColor.systemBackground))
                     }
                 }
+                Spacer()
             }
-            
+            .task {
+                await Thread = MessagesModel.FetchMessage(VerbisAnsAPI: VerbisAnsAPI, MessageData: Message.MessageData)
+                
+                await MessagesModel.NotifyRead(VerbisAPI: VerbisAnsAPI, MessageData: Message.MessageData)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(UIColor.systemGroupedBackground))
         }
-        .task {
-            await Thread = MessagesModel.FetchMessage(VerbisAnsAPI: VerbisAnsAPI, MessageData: Message.MessageData)
-        }
-        .padding()
     }
 }
 
