@@ -55,9 +55,10 @@ struct DayView: View {
             
             ForEach(schedules) { schedule in
                 ScheduleCard(Schedule: schedule)
+                    .offset(y: 1)
             }
         }
-        .padding(.leading, 15)
+        .padding(.leading, 5)
         .padding(.top, 30)
     }
 }

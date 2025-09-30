@@ -22,6 +22,13 @@ struct ANS_CalendarApp: App {
                     LoginView()
                         .environmentObject(VerbisANSApi)
                 }
+                if VerbisANSApi.IsBusy {
+                    ProgressView()
+                        .frame(alignment: .top)
+                        .padding()
+                        .background(.regularMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                }
             }
         }
     }

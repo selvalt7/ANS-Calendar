@@ -117,8 +117,33 @@ struct ScheduleInfo: Identifiable, Codable {
     let nazwaPelnaPrzedmiotu: String
     let grupyZajeciowe: [LessonInfo]
     let grupySprawdzianu: [ExamInfo]
+    let listaIdZajecInstancji: [LessonType]
     let sale: [RoomInfo]
     let wykladowcy: [LecturerInfo]
+    
+    func GetLessonColor() -> Color {
+        if listaIdZajecInstancji.count > 0 {
+            let LessonType = listaIdZajecInstancji[0].typZajec
+            switch LessonType {
+            case "W":
+                return Color.blue
+            case "CL":
+                return Color.mint
+            case "CP":
+                return Color.orange
+            case "CA":
+                return Color.green
+            case "CW":
+                return Color.cyan
+            default:
+                return Color.blue
+            }
+        } else if grupySprawdzianu.count > 0 {
+            return Color.red
+        } else {
+            return Color.blue
+        }
+    }
     
     private enum CodingKeys: String, CodingKey {
         case dataRozpoczecia
@@ -126,6 +151,7 @@ struct ScheduleInfo: Identifiable, Codable {
         case nazwaPelnaPrzedmiotu
         case grupyZajeciowe
         case grupySprawdzianu
+        case listaIdZajecInstancji
         case sale
         case wykladowcy
     }
@@ -133,6 +159,10 @@ struct ScheduleInfo: Identifiable, Codable {
 
 struct LessonInfo: Codable {
     let nazwaGrupyZajeciowej: String
+}
+
+struct LessonType: Codable {
+    let typZajec: String
 }
 
 struct ExamInfo: Codable {
@@ -147,7 +177,8 @@ struct RoomInfo: Codable {
 
 extension ScheduleInfo {
     static let SampleData = [
-        ScheduleInfo(dataRozpoczecia: 1731660000000, dataZakonczenia: 1731670000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", grupyZajeciowe: [LessonInfo(nazwaGrupyZajeciowej: "co")], grupySprawdzianu: [], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")], wykladowcy: [LecturerInfo(idProwadzacego: 1, stopienImieNazwisko: "mgr. Jan Kowalski")]),
-        ScheduleInfo(dataRozpoczecia: 1731681900000, dataZakonczenia: 1731690000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", grupyZajeciowe: [LessonInfo(nazwaGrupyZajeciowej: "co")], grupySprawdzianu: [ExamInfo(nazwaGrupySprawdzianu: "Awesome exam", nazwaSkroconaGrupySprawdzianu: "AE")], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")], wykladowcy: [LecturerInfo(idProwadzacego: 1, stopienImieNazwisko: "mgr. Jan Kowalski")])
+        ScheduleInfo(dataRozpoczecia: 1731657600000, dataZakonczenia: 1731670000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", grupyZajeciowe: [LessonInfo(nazwaGrupyZajeciowej: "co")], grupySprawdzianu: [], listaIdZajecInstancji: [LessonType(typZajec: "W")], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")], wykladowcy: [LecturerInfo(idProwadzacego: 1, stopienImieNazwisko: "mgr. Jan Kowalski")]),
+        ScheduleInfo(dataRozpoczecia: 1731672000000, dataZakonczenia: 1731677400000, nazwaPelnaPrzedmiotu: "Awesome quick long named lesson", grupyZajeciowe: [LessonInfo(nazwaGrupyZajeciowej: "CW1")], grupySprawdzianu: [], listaIdZajecInstancji: [LessonType(typZajec: "CW")], sale: [RoomInfo(idSali: 2, nazwaSkrocona: "BG 314")], wykladowcy: [LecturerInfo(idProwadzacego: 6465, stopienImieNazwisko: "mgr. Joe Doe")]),
+        ScheduleInfo(dataRozpoczecia: 1731681900000, dataZakonczenia: 1731690000000, nazwaPelnaPrzedmiotu: "Podstawy matematyki", grupyZajeciowe: [LessonInfo(nazwaGrupyZajeciowej: "co")], grupySprawdzianu: [ExamInfo(nazwaGrupySprawdzianu: "Awesome exam", nazwaSkroconaGrupySprawdzianu: "AE")], listaIdZajecInstancji: [], sale: [RoomInfo(idSali: 35, nazwaSkrocona: "BT T.0.01")], wykladowcy: [LecturerInfo(idProwadzacego: 1, stopienImieNazwisko: "mgr. Jan Kowalski")])
     ]
 }

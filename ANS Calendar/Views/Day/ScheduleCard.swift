@@ -45,7 +45,13 @@ struct ScheduleCard: View {
     }
     
     var body: some View {
-        HStack() {
+        HStack(spacing: 5) {
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Schedule.GetLessonColor())
+                .frame(width: 5)
+                .padding(.top, 4)
+                .padding(.bottom, 4)
+                .frame(minHeight: 0, maxHeight: .infinity)
             VStack() {
                 HStack {
                     Text(Schedule.nazwaPelnaPrzedmiotu)
@@ -74,12 +80,13 @@ struct ScheduleCard: View {
                     Spacer()
                 }
             }
-            .padding(4)
             .frame(height: Height, alignment: .top)
         }
+        .padding(4)
         .frame(maxWidth: .infinity)
-        .frame(height: Height, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 5).fill(.blue).opacity(0.5))
+        .frame(height: Height)
+        .clipped()
+        .background(RoundedRectangle(cornerRadius: 5).fill(Schedule.GetLessonColor()).opacity(0.5))
         .padding(.trailing, 65)
         .offset(x: 60, y: Offset)
         .onTapGesture {
@@ -130,6 +137,6 @@ struct ScheduleCard: View {
 }
 
 #Preview(traits: .fixedLayout(width: 400, height: 60)) {
-    var Schedule = ScheduleInfo.SampleData[0]
+    var Schedule = ScheduleInfo.SampleData[1]
     ScheduleCard(Schedule: Schedule)
 }

@@ -41,6 +41,9 @@ struct TabbedView: View {
                 
             }
         }
+        .sheet(isPresented: .constant(VerbisANSApi.AuthError == VerbisAPIError.ExpiredPassword)) {
+            PasswordChangeView()
+        }
     }
 }
 

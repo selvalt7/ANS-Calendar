@@ -16,6 +16,7 @@ let LogoutUrl = "stud.StartPage?action=security.authentication.Logout"
 enum VerbisAPIError: Error {
     case BadPassword
     case NoUser
+    case ExpiredPassword
 }
 
 struct ExceptionResponse: Codable {
@@ -31,6 +32,8 @@ class VerbisAPI: ObservableObject {
     @Published var SemesterID: Int = 0
     var ValidLogin: Bool = false
     @Published var IsLoggedIn: Bool = false
+    @Published var AuthError: VerbisAPIError? = nil
+    @Published var IsBusy: Bool = false
     
     init() {
         self.JSessionID = UserDefaults.standard.string(forKey: "JSessionID") ?? ""
@@ -57,6 +60,7 @@ class VerbisAPI: ObservableObject {
     
     func Login(user: String, pass: String) async throws {
         do {
+            IsBusy = true
             guard !user.isEmpty else {
                 throw VerbisAPIError.NoUser
             }
@@ -72,14 +76,16 @@ class VerbisAPI: ObservableObject {
             })
             
             let (data, response) = try await session.data(for: request)
+            
             let html: String = String(NSString(data: data, encoding: NSUTF8StringEncoding) ?? "")
+            
             let doc: Document = try SwiftSoup.parse(html)
+            
             if ( try doc.getElementsByClass("bad-pasword-wiki").indices.contains(0) )
             {
-                print("Wrong password")
+                IsBusy = false
                 throw VerbisAPIError.BadPassword
-            }
-            else{
+            } else {
                 print("Login succesful")
                 let links: Elements = try doc.select("a")
                 let studentsidregex = /(idosoby=)(\d+)/
@@ -99,12 +105,7 @@ class VerbisAPI: ObservableObject {
                 let fields = HTTPResponse.allHeaderFields as? [String: String]
                 let cookies = HTTPCookie.cookies(withResponseHeaderFields: fields!, for: response.url!)
                 
-                fields?.forEach({ (key: String, value: String) in
-                    print(key, value)
-                })
-                
                 for cookie in cookies {
-                    print(cookie.name)
                     if (cookie.name == "JSESSIONID") {
                         JSessionID = cookie.value
                     }
@@ -130,11 +131,31 @@ class VerbisAPI: ObservableObject {
                     print("Something went wrong")
                 }
                 
+                if let ErrorMessageContainer = try doc.getElementById("error-message") {
+                    let Nodes = try ErrorMessageContainer.getAllElements()
+                    
+                    for element in Nodes {
+                        for node in element.getChildNodes() {
+                            if let CommentNode = node as? Comment {
+                                if CommentNode.getData().contains(/password expired/) {
+                                    AuthError = VerbisAPIError.ExpiredPassword
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                IsBusy = false
+                
                 try await GetSemesterID()
             }
         } catch {
-            print("Error occured")
+            
         }
+    }
+    
+    func ChangePassword(Old: String, New: String, Confirm: String) async throws {
+        
     }
     
     func InitRequest(EndUrl: String, UrlData: String = "") -> URLRequest {
