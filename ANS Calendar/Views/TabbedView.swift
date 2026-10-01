@@ -24,6 +24,9 @@ struct TabbedView: View {
                     .environmentObject(VerbisANSApi)
             }
             .badge(Messages.UnreadMessages)
+            Tab("Grades", systemImage: "graduationcap") {
+                GradesView()
+            }
             Tab("Profile", systemImage: "person.crop.circle") {
                 ProfileView()
             }

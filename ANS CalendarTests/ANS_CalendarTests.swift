@@ -54,6 +54,200 @@ struct ANS_CalendarTests {
         #expect(profile.addresses.contains(ProfileField(label: "Temporary address", value: "No data")))
     }
 
+    @Test func progressPageParsesSemesterGrades() throws {
+        let html = """
+        <div id="progress-table">
+        <table class="vdbo-table">
+        <tbody>
+        <tr id="10">
+          <td headers="th-semestr"><span class="hidden-link">2024 Z</span></td>
+          <td headers="th-semestr-studiow"><a name="item1">1</a></td>
+          <td headers="th-tok-studiow">2024 Z</td>
+          <td headers="th-etap-studiow">Inż.</td>
+          <td headers="th-status">Rekrutacja<br></td>
+          <td headers="th-ects-semestralnie"><span class="inactive">30</span> / 30 / <span class="warn">0</span></td>
+          <td headers="th-ects-skumulowane"><span class="inactive">30</span> / 30 / <span class="warn">0</span></td>
+          <td headers="th-godziny-semestralnie"><span class="inactive">60</span> / 60 / <span class="warn">0</span></td>
+          <td headers="th-jk">6 / <span class="warn">0</span></td>
+          <td headers="th-srednia-semestralna">4,50        </td>
+          <td headers="th-srednia-roczna">--</td>
+          <td headers="th-srednia-skumulowana">4,50</td>
+          <td headers="th-grupa-dziekanska" title="Informatyka testowa IT1.1">IT1.1</td>
+          <td headers="th-opiekun">&nbsp;</td>
+        </tr>
+        <tr id="tr-progress-details10">
+          <td colspan="14">
+            <div id="progress-details10">
+              <table class="credits">
+                <tbody>
+                  <tr id="instancja100">
+                    <td headers="th10-lp">1.</td>
+                    <td headers="th10-nr-katalogowy">IE.TEST.1</td>
+                    <td headers="th10-wersja">
+                      <div id="version100" class="overflow-elipsis">A - A. Nowak</div>
+                      <div class="dijitTooltipData" connectid="version100"><span>A - dr Anna Nowak</span></div>
+                    </td>
+                    <td headers="th10-nazwa-przedmiotu">
+                      <table class="borderless"><tr><td class="left">Algorytmy</td></tr></table>
+                    </td>
+                    <td headers="th10-ocena" id="grade100">
+                      <span class="">            5,0
+                      </span>
+                      <div class="dijitTooltipData" connectid="grade100">
+                        <table class="student-grades">
+                          <tr><td>Ocena końcowa:</td><td>5,0 (03.02.2025)</td></tr>
+                          <tr><td colspan="2"><strong>Terminy</strong></td></tr>
+                          <tr><td>Podstawowy:</td><td>5,0 (03.02.2025)</td></tr>
+                        </table>
+                      </div>
+                    </td>
+                    <td headers="th10-ects"><span class="">4</span></td>
+                    <td headers="th10-godziny" id="hours100">
+                      <span class="">60</span>
+                      <div class="dijitTooltipData" connectid="hours100">
+                        <span>W: 30</span><span></span><span>CL: 30</span>
+                      </div>
+                    </td>
+                    <td headers="th10-jk"><span class="">4</span></td>
+                    <td headers="th10-grupy">
+                      <span id="100_1">W1,</span>
+                      <div class="dijitTooltipData" connectid="100_1">
+                        <div>dr Anna Nowak</div>
+                        <div>mgr Jan Test</div>
+                      </div>
+                      <span id="100_2">CL1</span>
+                      <div class="dijitTooltipData" connectid="100_2">
+                        <span>Brak wykładowców przypisanych do tej grupy</span>
+                      </div>
+                    </td>
+                    <td headers="th10-typ-zaliczenia"><span title="Egzamin">E</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>
+        <tr class="invisible"></tr>
+        <tr id="11">
+          <td headers="th-semestr"><span>2025 L</span></td>
+          <td headers="th-semestr-studiow">2</td>
+          <td headers="th-tok-studiow">2024 Z</td>
+          <td headers="th-etap-studiow">Inż.</td>
+          <td headers="th-status">Rejestracja ręczna</td>
+          <td headers="th-ects-semestralnie"><span class="inactive">10</span> / 4 / <span class="warn">2</span></td>
+          <td headers="th-ects-skumulowane"><span class="inactive">40</span> / 34 / <span class="warn">2</span></td>
+          <td headers="th-godziny-semestralnie"><span class="inactive">120</span> / 40 / <span class="warn">0</span></td>
+          <td headers="th-jk">4 / <span class="warn">0</span></td>
+          <td headers="th-srednia-semestralna">0,00</td>
+          <td headers="th-srednia-roczna">4,25</td>
+          <td headers="th-srednia-skumulowana">4,40</td>
+          <td headers="th-grupa-dziekanska" title="IT2.1">IT2.1</td>
+          <td headers="th-opiekun"></td>
+        </tr>
+        <tr id="tr-progress-details11">
+          <td>
+            <table class="credits">
+              <tr id="instancja200">
+                <td headers="th11-nr-katalogowy">IE.TEST.2</td>
+                <td headers="th11-wersja"><div id="version200" class="overflow-elipsis">A - Brak Danych</div></td>
+                <td headers="th11-nazwa-przedmiotu"><table><tr><td>Praktyka</td></tr></table></td>
+                <td headers="th11-ocena">
+                  <span class="inactive">---</span>
+                  <div class="dijitTooltipData">
+                    <table class="student-grades">
+                      <tr><td colspan="2">Ocena w dziekanacie</td></tr>
+                      <tr><td>Ocena końcowa:</td><td>---</td></tr>
+                    </table>
+                  </div>
+                </td>
+                <td headers="th11-ects"><span class="inactive">6</span></td>
+                <td headers="th11-godziny"><span class="inactive">120</span></td>
+                <td headers="th11-jk"><span class="inactive">6</span></td>
+                <td headers="th11-grupy"><span id="200_1">PZ1</span></td>
+                <td headers="th11-typ-zaliczenia"></td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        </tbody>
+        </table>
+        </div>
+        """
+
+        let progress = try parseAcademicProgress(html: html)
+        #expect(progress.semesters.count == 2)
+        #expect(progress.latest?.termTitle == "Summer 2025")
+        #expect(progress.newestFirst.first?.term == "2025 L")
+
+        let winter = progress.semesters[0]
+        #expect(winter.termTitle == "Winter 2024")
+        #expect(winter.studySemester == "1")
+        #expect(winter.trackTitle == "Winter 2024")
+        #expect(winter.stage == "Engineer")
+        #expect(winter.status == "Recruitment")
+        #expect(winter.ects.passedOfEnrolled == "30 of 30")
+        #expect(winter.hours.passedOfEnrolled == "60 of 60")
+        #expect(winter.costUnits.display == "6 / 0")
+        #expect(winter.semesterAverage == "4,50")
+        #expect(winter.yearlyAverage == nil)
+        #expect(winter.cumulativeAverage == "4,50")
+        #expect(winter.deanGroup == "IT1.1")
+        #expect(winter.program == "Informatyka testowa IT1.1")
+        #expect(winter.advisor == nil)
+        #expect(winter.courses.count == 1)
+
+        let course = winter.courses[0]
+        #expect(course.name == "Algorytmy")
+        #expect(course.catalogNumber == "IE.TEST.1")
+        #expect(course.grade == "5,0")
+        #expect(!course.grade.contains("Ocena"))
+        #expect(!course.isPending)
+        #expect(course.isExam)
+        #expect(course.coordinator == "A - dr Anna Nowak")
+        #expect(course.ects == "4")
+        #expect(!course.ectsPending)
+        #expect(course.attempts.count == 2)
+        #expect(course.attempts[0].label == "Final grade")
+        #expect(course.attempts[0].grade == "5,0")
+        #expect(course.attempts[0].date == "03.02.2025")
+        #expect(course.attempts[0].context == nil)
+        #expect(course.attempts[1].label == "First sitting")
+        #expect(course.hourBreakdown.map(\.title) == ["Lecture", "Lab"])
+        #expect(course.hourBreakdown.map(\.hours) == ["30", "30"])
+        #expect(course.groups.count == 2)
+        #expect(course.groups[0].code == "W1")
+        #expect(course.groups[0].lecturers == ["dr Anna Nowak", "mgr Jan Test"])
+        #expect(course.groups[1].code == "CL1")
+        #expect(course.groups[1].lecturers.isEmpty)
+
+        let summer = progress.semesters[1]
+        #expect(summer.termTitle == "Summer 2025")
+        #expect(summer.status == "Manual registration")
+        #expect(summer.ects.passedOfEnrolled == "4 of 10, 2 failed")
+        #expect(summer.cumulativeECTS.passedOfEnrolled == "34 of 40, 2 failed")
+        #expect(summer.semesterAverage == "0,00")
+        #expect(summer.yearlyAverage == "4,25")
+        #expect(summer.cumulativeAverage == "4,40")
+        #expect(summer.program == nil)
+        #expect(summer.trackTitle == "Winter 2024")
+        #expect(summer.courses.count == 1)
+
+        let pending = summer.courses[0]
+        #expect(pending.name == "Praktyka")
+        #expect(pending.grade == "---")
+        #expect(pending.displayGrade == "—")
+        #expect(pending.isPending)
+        #expect(!pending.isExam)
+        #expect(pending.attempts.isEmpty)
+        #expect(pending.coordinator == "A - No data")
+        #expect(pending.ectsPending)
+        #expect(pending.ects == "6")
+        #expect(pending.groups == [CourseGroup(code: "PZ1", lecturers: [])])
+
+        let empty = try parseAcademicProgress(html: "<div id=\"progress-table\"></div>")
+        #expect(empty.semesters.isEmpty)
+    }
+
     @Test func messageDateIgnoresPolishWeekday() {
         let parsed = parseVerbisMessageDate("wtorek 30.06.2026 13:04")
         let calendar = Calendar.ans
