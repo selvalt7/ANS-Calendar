@@ -106,22 +106,45 @@ struct ProfileView: View {
         if !fields.isEmpty {
             Section(title) {
                 ForEach(Array(fields.enumerated()), id: \.offset) { _, field in
-                    let isHidden = field.isSensitive && !showsSensitiveData
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(field.label)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(isHidden ? "••••••••" : field.value)
-                            .font(.body)
-                            .textSelection(isHidden ? .disabled : .enabled)
-                            .privacySensitive(field.isSensitive)
-                    }
-                    .padding(.vertical, 2)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(field.label)
-                    .accessibilityValue(isHidden ? "Hidden" : field.value)
+                    ProfileFieldRow(field: field, showsSensitiveData: showsSensitiveData)
                 }
             }
+        }
+    }
+}
+
+private struct ProfileFieldRow: View {
+    var field: ProfileField
+    var showsSensitiveData: Bool
+
+    private var isHidden: Bool {
+        field.isSensitive && !showsSensitiveData
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(field.label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            fieldValue
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(field.label)
+        .accessibilityValue(isHidden ? "Hidden" : field.value)
+    }
+
+    @ViewBuilder
+    private var fieldValue: some View {
+        if isHidden {
+            Text("••••••••")
+                .font(.body)
+                .privacySensitive()
+        } else {
+            Text(field.value)
+                .font(.body)
+                .textSelection(.enabled)
+                .privacySensitive(field.isSensitive)
         }
     }
 }
