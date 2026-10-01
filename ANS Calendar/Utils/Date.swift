@@ -177,41 +177,53 @@ func parseVerbisMessageDate(_ raw: String) -> Date? {
 
 func parseVerbisMessageDateValue(_ raw: String) -> VerbisMessageDate? {
     let text = normalizeVerbisMessageDateText(raw)
-    // Skip weekday/sender prefixes (including Polish diacritics like "poniedziałek") by
-    // starting at the first dd.MM.yyyy / dd.MM.yyyy HH:mm match.
-    guard let match = text.firstMatch(
-        of: /(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::\d{2})?)?/
-    ),
-          let parsedDay = Int(match.1),
-          let parsedMonth = Int(match.2),
-          let parsedYear = Int(match.3),
-          (1...31).contains(parsedDay),
-          (1...12).contains(parsedMonth)
-    else { return nil }
 
-    let includesTime: Bool
+    let day: Int
+    let month: Int
+    let year: Int
     let hour: Int
     let minute: Int
-    if let hourText = match.4, let minuteText = match.5,
-       let parsedHour = Int(hourText),
-       let parsedMinute = Int(minuteText),
+    let includesTime: Bool
+
+    // Match starts at digits, so Polish weekdays (including "poniedziałek") are ignored.
+    if let match = text.firstMatch(of: /(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})/),
+       let parsedDay = Int(match.1),
+       let parsedMonth = Int(match.2),
+       let parsedYear = Int(match.3),
+       let parsedHour = Int(match.4),
+       let parsedMinute = Int(match.5),
+       (1...31).contains(parsedDay),
+       (1...12).contains(parsedMonth),
        (0...23).contains(parsedHour),
        (0...59).contains(parsedMinute) {
-        includesTime = true
+        day = parsedDay
+        month = parsedMonth
+        year = parsedYear
         hour = parsedHour
         minute = parsedMinute
-    } else {
-        includesTime = false
+        includesTime = true
+    } else if let match = text.firstMatch(of: /(\d{1,2})\.(\d{1,2})\.(\d{4})/),
+              let parsedDay = Int(match.1),
+              let parsedMonth = Int(match.2),
+              let parsedYear = Int(match.3),
+              (1...31).contains(parsedDay),
+              (1...12).contains(parsedMonth) {
+        day = parsedDay
+        month = parsedMonth
+        year = parsedYear
         hour = 0
         minute = 0
+        includesTime = false
+    } else {
+        return nil
     }
 
     var components = DateComponents()
     components.calendar = .ans
     components.timeZone = Calendar.ans.timeZone
-    components.year = parsedYear
-    components.month = parsedMonth
-    components.day = parsedDay
+    components.year = year
+    components.month = month
+    components.day = day
     components.hour = hour
     components.minute = minute
     guard let date = Calendar.ans.date(from: components) else { return nil }
