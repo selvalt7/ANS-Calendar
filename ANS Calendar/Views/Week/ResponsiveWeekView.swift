@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ResponsiveWeekView: View {
     @EnvironmentObject var model: ScheduleModel
+    @Environment(\.scheduleObscuredBottom) private var obscuredBottom
     @State private var selectedPage: Int = 0
     let hourHeight: CGFloat = 50.0
     
@@ -9,14 +10,14 @@ struct ResponsiveWeekView: View {
         GeometryReader { geometry in
             // 1. Detect Orientation
             let isLandscape = geometry.size.width > geometry.size.height
-            let daysPerPage = isLandscape ? 7 : 3
+            let daysPerPage = max(1, isLandscape ? 7 : 3)
             
             // 2. Calculate column sizes
             let timeColumnWidth: CGFloat = 50
-            let dayWidth = (geometry.size.width - timeColumnWidth) / CGFloat(daysPerPage)
+            let dayWidth = max(1, (geometry.size.width - timeColumnWidth) / CGFloat(daysPerPage))
             
             // 3. Chunk the current week's days into swipeable pages
-            let currentWeekDays = model.Weeks.count > 1 ? model.Weeks[1].Days : []
+            let currentWeekDays = model.SelectedWeek.daysOfWeek()
             let pages = Array(currentWeekDays.chunked(into: daysPerPage).enumerated())
             
             VStack(spacing: 0) {
@@ -139,9 +140,7 @@ struct ResponsiveWeekView: View {
                                 }
                                 
                                 // Schedules specifically for this day
-                                let daySchedules = model.Schedules.filter {
-                                    Date(timeIntervalSince1970: Double($0.dataRozpoczecia / 1000)).IsSameDay(date: day)
-                                }
+                                let daySchedules = model.schedules(on: day)
                                 
                                 ForEach(daySchedules) { schedule in
                                     ResponsiveScheduleCard(schedule: schedule, dayWidth: dayWidth, hourHeight: hourHeight)
@@ -155,7 +154,9 @@ struct ResponsiveWeekView: View {
                     .padding(.top, 0)
                 }
                 .padding(.top, 10)
+                .padding(.bottom, obscuredBottom)
             }
+            .ignoresSafeArea(edges: .bottom)
         }
     }
 }
@@ -237,7 +238,8 @@ struct ResponsiveTimeIndicator: View {
 extension Array {
     // Splits an array into smaller chunks (e.g., 3 days at a time)
     func chunked(into size: Int) -> [[Element]] {
-        stride(from: 0, to: count, by: size).map {
+        guard size > 0 else { return isEmpty ? [] : [self] }
+        return stride(from: 0, to: count, by: size).map {
             Array(self[$0 ..< Swift.min($0 + size, count)])
         }
     }

@@ -52,6 +52,9 @@ struct TabbedView: View {
                 }
             }
         }
+        .tabViewStyle(.tabBarOnly)
+        .toolbarBackground(.ultraThinMaterial, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
         // 3. Bind the sheet to BOTH the manual button press and the API error
         .sheet(isPresented: Binding(
             get: {

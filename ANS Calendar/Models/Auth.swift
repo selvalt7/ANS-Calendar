@@ -78,14 +78,17 @@ class VerbisAPI: ObservableObject {
             guard !user.isEmpty else {
                 throw VerbisAPIError.NoUser
             }
-            let apiurl = URL(string: BaseUrl+LoginUrl)
+            guard let apiurl = URL(string: BaseUrl + LoginUrl) else {
+                IsBusy = false
+                return
+            }
             let loginData = "login=\(user)&password=\(pass)"
             
             let request = InitRequest(EndUrl: LoginUrl, UrlData: loginData)
             
             let session = URLSession.shared
             
-            HTTPCookieStorage.shared.cookies(for: apiurl!)?.forEach({ HTTPCookie in
+            HTTPCookieStorage.shared.cookies(for: apiurl)?.forEach({ HTTPCookie in
                 HTTPCookieStorage.shared.deleteCookie(HTTPCookie)
             })
             
@@ -107,17 +110,24 @@ class VerbisAPI: ObservableObject {
                 
                 for link: Element in links.array() {
                     let linkHref: String = try link.attr("href")
-                    if let match = linkHref.firstMatch(of: studentsidregex) {
-                        StudentID = NumberFormatter().number(from: String(match.2))!.intValue
+                    if let match = linkHref.firstMatch(of: studentsidregex), let student = Int(match.2) {
+                        StudentID = student
                     }
-                    if let match = linkHref.firstMatch(of: tourRegex) {
-                        TourID = NumberFormatter().number(from: String(match.2))!.intValue
+                    if let match = linkHref.firstMatch(of: tourRegex), let tour = Int(match.2) {
+                        TourID = tour
                     }
                 }
                 
-                let HTTPResponse = response as! HTTPURLResponse
-                let fields = HTTPResponse.allHeaderFields as? [String: String]
-                let cookies = HTTPCookie.cookies(withResponseHeaderFields: fields!, for: response.url!)
+                guard let httpResponse = response as? HTTPURLResponse, let responseURL = response.url else {
+                    IsBusy = false
+                    return
+                }
+                let fields = httpResponse.allHeaderFields.reduce(into: [String: String]()) { result, pair in
+                    if let key = pair.key as? String, let value = pair.value as? String {
+                        result[key] = value
+                    }
+                }
+                let cookies = HTTPCookie.cookies(withResponseHeaderFields: fields, for: responseURL)
                 
                 for cookie in cookies {
                     if (cookie.name == "JSESSIONID") {
@@ -136,7 +146,7 @@ class VerbisAPI: ObservableObject {
                 let attributes: [String: Any] = [
                     kSecClass as String: kSecClassGenericPassword,
                     kSecAttrAccount as String: user,
-                    kSecValueData as String: pass.data(using: .utf8)!
+                    kSecValueData as String: Data(pass.utf8)
                 ]
                 
                 if SecItemAdd(attributes as CFDictionary, nil) == noErr {
@@ -161,7 +171,7 @@ class VerbisAPI: ObservableObject {
                 
                 IsBusy = false
                 
-                try await GetSemesterID()
+                await GetSemesterID()
             }
         } catch {
             
@@ -240,7 +250,7 @@ class VerbisAPI: ObservableObject {
                 kSecAttrAccount as String: username
             ]
             let attributesToUpdate: [String: Any] = [
-                kSecValueData as String: New.data(using: .utf8)!
+                kSecValueData as String: Data(New.utf8)
             ]
             
             let status = SecItemUpdate(query as CFDictionary, attributesToUpdate as CFDictionary)
@@ -253,8 +263,8 @@ class VerbisAPI: ObservableObject {
     }
     
     func InitRequest(EndUrl: String, UrlData: String = "") -> URLRequest {
-        let url = URL(string: BaseUrl+EndUrl)
-        var request = URLRequest(url: url!)
+        let url = URL(string: BaseUrl + EndUrl) ?? URL(string: "about:blank")!
+        var request = URLRequest(url: url)
         
         request.httpMethod = "POST"
         request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
@@ -281,14 +291,15 @@ class VerbisAPI: ObservableObject {
             let session = URLSession.shared
             let (data, response) = try await session.data(for: request)
             let html: String = String(NSString(data: data, encoding: NSUTF8StringEncoding) ?? "")
-            let doc: Document = try! SwiftSoup.parse(html)
+            let doc: Document = try SwiftSoup.parse(html)
             
-            let scripts: Elements = try! doc.select("script")
+            let scripts: Elements = try doc.select("script")
             
             let semesterIDRegex = /(idSemestru:)\s(\d+)/
             for script in scripts {
-                if let match = try script.data().firstMatch(of: semesterIDRegex) {
-                    SemesterID = NumberFormatter().number(from: String(match.2))!.intValue
+                if let match = try script.data().firstMatch(of: semesterIDRegex),
+                   let semester = Int(match.2) {
+                    SemesterID = semester
                     UserDefaults.standard.set(SemesterID, forKey: "SemesterID")
                     break
                 }

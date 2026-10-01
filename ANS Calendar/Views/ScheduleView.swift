@@ -5,115 +5,170 @@
 
 import SwiftUI
 
-// 1. Define your three layout states
 enum CalendarLayout: String, CaseIterable {
     case daily = "Daily"
     case multiDay = "Multi-Day"
     case monthly = "Monthly"
 }
 
+private struct ScheduleObscuredBottomKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 96
+}
+
+extension EnvironmentValues {
+    var scheduleObscuredBottom: CGFloat {
+        get { self[ScheduleObscuredBottomKey.self] }
+        set { self[ScheduleObscuredBottomKey.self] = newValue }
+    }
+}
+
+/// Reads how much of the bottom edge is covered by the tab bar and home indicator.
+private struct ObscuredBottomReader: UIViewRepresentable {
+    @Binding var height: CGFloat
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        DispatchQueue.main.async {
+            let resolved = Self.resolve(uiView.safeAreaInsets.bottom)
+            if abs(resolved - height) > 0.5 {
+                height = resolved
+            }
+        }
+    }
+
+    static func resolve(_ measured: CGFloat) -> CGFloat {
+        if measured >= 70 { return measured }
+        if measured > 0 { return measured + 49 }
+        return 96
+    }
+}
+
 struct ScheduleView: View {
     @EnvironmentObject var VerbisANSApi: VerbisAPI
     @StateObject var model = ScheduleModel()
-    
-    // 2. Track the current layout instead of a boolean
     @State private var currentLayout: CalendarLayout = .daily
-    
+    @State private var selectedSchedule: ScheduleInfo?
+    @State private var obscuredBottom: CGFloat = 96
+
+    private var isViewingToday: Bool {
+        Date().IsSameDay(date: model.SelectedDay)
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // MARK: - Main Content Area
-                if currentLayout == .multiDay {
-                    // THE NEW THIRD LAYOUT
-                    // Takes up the entire screen to show side-by-side days
+            Group {
+                switch currentLayout {
+                case .multiDay:
                     ResponsiveWeekView()
                         .environmentObject(model)
-                        .transition(.opacity)
-                } else {
-                    // THE ORIGINAL DAILY/MONTHLY SPLIT LAYOUT
+                case .daily, .monthly:
                     VStack(spacing: 0) {
-                        // Top Header (Month Grid or Week Strip)
-                        VStack {
-                            if currentLayout == .monthly {
-                                MonthCalendarView()
-                                    .environmentObject(model)
-                                    .transition(.move(edge: .top).combined(with: .opacity))
-                            } else { // .daily
-                                TabbedWeek() { week in
-                                    WeekView(week: week)
-                                }
-                                .frame(height: 110)
+                        if currentLayout == .monthly {
+                            MonthCalendarView()
                                 .environmentObject(model)
                                 .transition(.move(edge: .top).combined(with: .opacity))
+                        } else {
+                            TabbedWeek { week in
+                                WeekView(week: week)
                             }
+                            .environmentObject(model)
+                            .transition(.move(edge: .top).combined(with: .opacity))
                         }
-                        .clipped()
-                        
+
                         Divider()
-                        
-                        // Bottom Timeline (Single Day)
-                        TabbedDay() { day in
-                            DayView(date: day, schedules: model.Schedules.filter({
-                                Date(timeIntervalSince1970: Double($0.dataRozpoczecia / 1000)).IsSameDay(date: day)
-                            }))
-                        }
-                        .refreshable {
-                            do { try await model.LoadSchedule(VerbisANSApi: VerbisANSApi) } catch { }
+
+                        TabbedDay(onRefresh: reload) { day in
+                            DayView(
+                                date: day,
+                                schedules: model.schedules(on: day),
+                                isLoading: model.IsLoading,
+                                statusText: model.LoadError,
+                                onSelect: { selectedSchedule = $0 }
+                            )
                         }
                         .environmentObject(model)
                     }
                 }
             }
-            // Fetch initial data
-            .task {
-                do { try await model.LoadSchedule(VerbisANSApi: VerbisANSApi) } catch { }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottom) {
+                ObscuredBottomReader(height: $obscuredBottom)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 120)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .opacity(0)
             }
-            // Fetch data if week changes
-            .onChange(of: model.SelectedWeek) { _ in
+            .environment(\.scheduleObscuredBottom, obscuredBottom)
+            .task {
+                await model.LoadSchedule(VerbisANSApi: VerbisANSApi)
+            }
+            .onChange(of: model.SelectedWeek) { _, _ in
+                Task { await model.LoadSchedule(VerbisANSApi: VerbisANSApi) }
+            }
+            .onChange(of: model.DisplayedMonth) { _, month in
+                guard currentLayout == .monthly else { return }
+                Task { await model.LoadMonth(month, VerbisANSApi: VerbisANSApi) }
+            }
+            .onChange(of: currentLayout) { _, layout in
                 Task {
-                    do { try await model.LoadSchedule(VerbisANSApi: VerbisANSApi) } catch { }
+                    if layout == .monthly {
+                        await model.LoadMonth(model.DisplayedMonth, VerbisANSApi: VerbisANSApi)
+                    } else {
+                        await model.LoadSchedule(VerbisANSApi: VerbisANSApi)
+                    }
                 }
             }
             .navigationTitle(model.SelectedDay.formatted(.dateTime.month(.wide).year()))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                // MARK: - Toolbar Controls
                 ToolbarItem(placement: .topBarTrailing) {
-                    // A sleek iOS native drop-down menu to pick the layout
                     Menu {
                         Picker("Layout", selection: $currentLayout) {
                             Label("Daily", systemImage: "rectangle.grid.1x2")
                                 .tag(CalendarLayout.daily)
-                            
                             Label("Multi-Day", systemImage: "rectangle.grid.3x2")
                                 .tag(CalendarLayout.multiDay)
-                            
                             Label("Monthly", systemImage: "calendar")
                                 .tag(CalendarLayout.monthly)
                         }
                     } label: {
-                        // Icon dynamically changes based on selected layout
                         Image(systemName: layoutIcon(for: currentLayout))
                             .foregroundStyle(Color.accentColor)
                     }
                 }
-                
-                // Today button
+
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Today") {
-                        withAnimation {
-                            model.SelectDay(day: Date())
-                        }
+                        model.SelectDay(day: Date())
                     }
-                    .opacity(Date().IsSameDay(date: model.SelectedDay) ? 0 : 1)
+                    .disabled(isViewingToday)
+                    .opacity(isViewingToday ? 0 : 1)
                 }
             }
-            // Animate layout changes beautifully
-            .animation(.easeInOut, value: currentLayout)
+            .animation(.easeInOut(duration: 0.2), value: currentLayout)
+            .sheet(item: $selectedSchedule) { schedule in
+                ScheduleDetailSheet(schedule: schedule)
+            }
         }
+        // Draw the timeline underneath the translucent tab bar. Scroll views add
+        // bottom padding so the last hour can still be scrolled clear of it.
+        .ignoresSafeArea(edges: .bottom)
     }
-    
-    // Helper function to change the toolbar icon based on mode
+
+    private func reload() async {
+        if currentLayout == .monthly {
+            await model.LoadMonth(model.DisplayedMonth, VerbisANSApi: VerbisANSApi)
+        }
+        await model.LoadSchedule(VerbisANSApi: VerbisANSApi)
+    }
+
     private func layoutIcon(for layout: CalendarLayout) -> String {
         switch layout {
         case .daily: return "rectangle.grid.1x2"
