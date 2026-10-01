@@ -13,10 +13,22 @@ let BaseUrl = "https://wu.ans-nt.edu.pl/ppuz-stud-app/ledge/view/"
 let LoginUrl = "stud.StartPage?action=security.authentication.ImapLogin"
 let LogoutUrl = "stud.StartPage?action=security.authentication.Logout"
 
-enum VerbisAPIError: Error {
+enum VerbisAPIError: Error, LocalizedError, Equatable {
     case BadPassword
     case NoUser
     case ExpiredPassword
+    case PasswordsDoNotMatch
+    case WeakPassword
+    case ChangeFailed(String) // Now accepts the parsed error message
+    
+    var errorDescription: String? {
+        switch self {
+        case .PasswordsDoNotMatch: return "The new passwords do not match."
+        case .WeakPassword: return "Password must be at least 8 characters long, contain one uppercase letter, one lowercase letter, and one number."
+        case .ChangeFailed(let message): return message // Returns the server's exact error
+        default: return "An unknown authentication error occurred."
+        }
+    }
 }
 
 struct ExceptionResponse: Codable {
@@ -30,6 +42,7 @@ class VerbisAPI: ObservableObject {
     @Published var StudentID: Int = 0
     @Published var TourID: Int = 0
     @Published var SemesterID: Int = 0
+    @Published var MailboxID: Int = 0
     var ValidLogin: Bool = false
     @Published var IsLoggedIn: Bool = false
     @Published var AuthError: VerbisAPIError? = nil
@@ -40,6 +53,7 @@ class VerbisAPI: ObservableObject {
         self.StudentID = UserDefaults.standard.integer(forKey: "StudentID")
         self.TourID = UserDefaults.standard.integer(forKey: "TourID")
         self.SemesterID = UserDefaults.standard.integer(forKey: "SemesterID")
+        self.MailboxID = UserDefaults.standard.integer(forKey: "MailboxID")
         self.ValidLogin = UserDefaults.standard.bool(forKey: "LoginGood")
         
         URLSession.shared.configuration.httpShouldSetCookies = false
@@ -155,7 +169,87 @@ class VerbisAPI: ObservableObject {
     }
     
     func ChangePassword(Old: String, New: String, Confirm: String) async throws {
+        // 1. Validate that the passwords match locally
+        guard New == Confirm else {
+            throw VerbisAPIError.PasswordsDoNotMatch
+        }
         
+        // 2. Validate password complexity locally (8+ chars, 1 uppercase, 1 lowercase, 1 number)
+        let passwordRegex = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{8,}$"
+        guard New.range(of: passwordRegex, options: .regularExpression) != nil else {
+            throw VerbisAPIError.WeakPassword
+        }
+        
+        IsBusy = true
+        defer { IsBusy = false }
+        
+        // 3. Prepare the network request
+        let changeUrl = "stud.StartPage?action=student.ChangePassword"
+        
+        let safeOld = Old.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? Old
+        let safeNew = New.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? New
+        let payload = "oldpassword=\(safeOld)&newpassword=\(safeNew)"
+        
+        var request = InitRequest(EndUrl: changeUrl, UrlData: payload)
+        // Sometimes servers expect form-urlencoded content type for POST payloads like this
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        
+        let session = URLSession.shared
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw VerbisAPIError.ChangeFailed("Failed to connect to the server.")
+        }
+        
+        // 4. Parse the response HTML to check for the 'action-error-message' div
+        let html = String(data: data, encoding: .utf8) ?? ""
+        let doc: Document = try SwiftSoup.parse(html)
+        
+        let errorContainers = try doc.getElementsByClass("action-error-message")
+        
+        if !errorContainers.isEmpty() {
+            let container = errorContainers.first()!
+            
+            // Grab the main text ("Nie można zmienić hasła") and clean up the quotes/spaces
+            var fullErrorMessage = try container.ownText()
+                .replacingOccurrences(of: "\"", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Grab all the specific reasons ("Hasło jest zbyt krótkie", etc.)
+            let errorDetails = try container.getElementsByClass("action-error-data")
+            var detailsText: [String] = []
+            
+            for detail in errorDetails.array() {
+                detailsText.append(try detail.text())
+            }
+            
+            // Combine them into a readable multi-line string for the SwiftUI Alert
+            if !detailsText.isEmpty {
+                let bulletPoints = detailsText.map { "• \($0)" }.joined(separator: "\n")
+                fullErrorMessage += "\n\n" + bulletPoints
+            }
+            
+            throw VerbisAPIError.ChangeFailed(fullErrorMessage.isEmpty ? "Wystąpił nieznany błąd." : fullErrorMessage)
+        }
+        
+        AuthError = nil;
+        // 5. If no error is found on the page, the change was successful. Update Keychain.
+        if let username = UserDefaults.standard.string(forKey: "Login") {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrAccount as String: username
+            ]
+            let attributesToUpdate: [String: Any] = [
+                kSecValueData as String: New.data(using: .utf8)!
+            ]
+            
+            let status = SecItemUpdate(query as CFDictionary, attributesToUpdate as CFDictionary)
+            if status != noErr {
+                print("Failed to update password in keychain.")
+            } else {
+                print("Keychain password updated successfully.")
+            }
+        }
     }
     
     func InitRequest(EndUrl: String, UrlData: String = "") -> URLRequest {

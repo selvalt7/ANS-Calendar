@@ -49,20 +49,31 @@ class ScheduleModel: ObservableObject {
     
     func SelectDay(day: Date) {
         SelectedDay = day
+        
+        // If the newly selected day is in a different week, update the week state automatically
+        if !SelectedDay.IsSameWeek(date: SelectedWeek) {
+            SelectWeek(for: SelectedDay)
+        }
+    }
+    
+    // New function specifically for handling week transitions
+    func SelectWeek(for date: Date) {
+        SelectedWeek = date.startOfWeek()
+        SetupWeeks(for: date)
     }
     
     func ShiftWeeks(dir: Int) {
-        if (dir == -1) {
-            SelectDay(day: Calendar.current.date(byAdding: .day, value: -7, to: SelectedDay)!)
+        // If dir is 0, just reset the current week (useful for your onDisappear edge cases)
+        if dir == 0 {
+            SelectWeek(for: SelectedDay)
+            return
         }
         
-        if (dir == 1) {
-            SelectDay(day: Calendar.current.date(byAdding: .day, value: 7, to: SelectedDay)!)
-        }
+        // Calculate the new date by jumping forward/backward 7 days
+        guard let shiftedDate = Calendar.current.date(byAdding: .day, value: dir * 7, to: SelectedDay) else { return }
         
-        SelectedWeek = SelectedDay.startOfWeek()
-        
-        SetupWeeks(for: SelectedDay)
+        // Let SelectDay handle both the day change AND the week change
+        SelectDay(day: shiftedDate)
     }
     
     func LoadSchedule(VerbisANSApi: VerbisAPI) async throws {
@@ -79,7 +90,7 @@ class ScheduleModel: ObservableObject {
     
     func FetchSchedules(VerbisANSApi: VerbisAPI, semesterID: Int, date: Date) async throws -> [ScheduleInfo] {
         do {
-            let request = VerbisANSApi.InitAJAXRequest(Service: "Planowanie", Method: "getUlozoneTerminyOsoby", Params: "\"idOsoby\":\(VerbisANSApi.StudentID),\"idSemestru\":\(semesterID),\"poczatekTygodnia\":\(date.timeIntervalSince1970 * 1000)")
+            let request = VerbisANSApi.InitAJAXRequest(Service: "Planowanie", Method: "getOpublikowaneSpotkaniaOsoby", Params: "\"idOsoby\":\(VerbisANSApi.StudentID),\"idSemestru\":\(semesterID),\"poczatekTygodnia\":\(date.timeIntervalSince1970 * 1000)")
             
             let session = URLSession.shared
             let (data, _) = try await session.data(for: request)

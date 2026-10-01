@@ -8,7 +8,8 @@
 import Foundation
 import SwiftSoup
 
-let MessagesUrl = "stud.wiadomosci.WiadomosciView"
+let MessagesUrl = "stud.wiadomosci.WiadomosciZakladkaView"
+let MailboxIDURL = "stud.wiadomosci.WiadomosciTabContainerView"
 
 struct UnreadMessagesResposne: Codable {
     let returnedValue: Int?
@@ -64,24 +65,35 @@ class MessagesModel: ObservableObject {
         Message(Sender: "Jan Kowalski", Title: "Another important notice", PreviewContent: "Lorem ipsum", Unread: false, MessageData: MessageData(typWiersza: "", idWatku: 0, idSkrzynkiUczestnika: 0, idWszystkichWiadomosci: [0]), Date: Date())
     ]
     
-    func getUnreadMessages(VerbisANSApi: VerbisAPI) -> Int {
-        let request = VerbisANSApi.InitAJAXRequest(Service: "Wiadomosc", Method: "getLiczbaNowychWiadomosci")
-        
-        let session = URLSession.shared
-        Task {
+    func getUnreadMessages(VerbisANSApi: VerbisAPI) async {
+        do {
+            let request = VerbisANSApi.InitAJAXRequest(Service: "Wiadomosc", Method: "getLiczbaNowychWiadomosci")
+            let session = URLSession.shared
+            
+            // Wait for the network call to finish
             let (data, _) = try await session.data(for: request)
             
-            let parsedJSON: UnreadMessagesResposne = try! JSONDecoder().decode(UnreadMessagesResposne.self, from: data)
-            UnreadMessages = parsedJSON.returnedValue ?? 0
+            // Safely decode
+            let parsedJSON = try JSONDecoder().decode(UnreadMessagesResposne.self, from: data)
+            
+            // Update the @Published property directly
+            self.UnreadMessages = parsedJSON.returnedValue ?? 0
+        } catch {
+            print("Failed to fetch unread messages: \(error.localizedDescription)")
         }
-        return UnreadMessages
     }
     
     func FetchMessages(VerbisAnsAPI: VerbisAPI, Offset: Int = 0) async {
         do {
             IsBusy = true
             
-            let request = VerbisAnsAPI.InitRequest(EndUrl: MessagesUrl, UrlData: "offset=\(Offset)")
+            if (VerbisAnsAPI.MailboxID == 0) {
+                await GetMailboxID(VerbisANSAPI: VerbisAnsAPI)
+            } else {
+                MailboxID = VerbisAnsAPI.MailboxID;
+            }
+            
+            let request = VerbisAnsAPI.InitRequest(EndUrl: MessagesUrl, UrlData: "offset=\(Offset)&idskrzynki=\(MailboxID)")
             
             let session = URLSession.shared
             
@@ -89,17 +101,6 @@ class MessagesModel: ObservableObject {
             
             let html: String = String(NSString(data: data, encoding: NSUTF8StringEncoding) ?? "")
             let doc: Document = try SwiftSoup.parse(html)
-            
-            let MailboxIDRegex = /(idSkrzynkiWyswietlajacej: )"(\d+)"/
-            
-            let scripts: Elements = try! doc.select("script")
-            
-            for script in scripts {
-                if let match = try script.data().firstMatch(of: MailboxIDRegex) {
-                    MailboxID = NumberFormatter().number(from: String(match.2))!.intValue
-                    break
-                }
-            }
             
             let messageHeaders: Elements = try doc.select(".wiadomosc-tr-header")
             let MessagesContentHeader: Elements = try doc.select(".wiadomosc-tr-content-header")
@@ -135,11 +136,40 @@ class MessagesModel: ObservableObject {
         }
     }
     
+    func GetMailboxID(VerbisANSAPI: VerbisAPI) async {
+        do {
+            let request = VerbisANSAPI.InitRequest(EndUrl: MailboxIDURL, UrlData: "")
+            
+            let session = URLSession.shared
+            
+            let (data, _) = try await session.data(for: request)
+            
+            let html: String = String(NSString(data: data, encoding: NSUTF8StringEncoding) ?? "")
+            let doc: Document = try SwiftSoup.parse(html)
+            
+            let MailboxIDRegex = /(idskrzynki=)(\d+)/
+            
+            let scripts: Elements = try! doc.select(".wiadomosci-view-tab")
+            
+            for script in scripts {
+                if let match = try script.attr("href").firstMatch(of: MailboxIDRegex) {
+                    MailboxID = NumberFormatter().number(from: String(match.2))!.intValue
+                    break
+                }
+            }
+            print(MailboxID)
+            VerbisANSAPI.MailboxID = MailboxID
+            UserDefaults.standard.set(MailboxID, forKey: "MailboxID")
+        } catch {
+            
+        }
+    }
+    
     func FetchMessage(VerbisAnsAPI: VerbisAPI, MessageData: MessageData) async -> [MessageContent] {
         do {
             IsBusy = true
             
-            let MessagePayload = "idwatku=\(MessageData.idWatku)&idskrzynkiuczestnika=\(MessageData.idSkrzynkiUczestnika)"
+            let MessagePayload = "idwatku=\(MessageData.idWatku)&idskrzynkiuczestnika=\(MessageData.idSkrzynkiUczestnika)&idskrzynki=\(MailboxID)"
             let request = VerbisAnsAPI.InitRequest(EndUrl: MessagesUrl, UrlData: MessagePayload)
             
             let session = URLSession.shared
@@ -226,6 +256,8 @@ class MessagesModel: ObservableObject {
             let session = URLSession.shared
             
             let (_, _) = try await session.data(for: request)
+            
+            await getUnreadMessages(VerbisANSApi: VerbisAPI)
         } catch {
             
         }
