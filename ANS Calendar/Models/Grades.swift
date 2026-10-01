@@ -280,7 +280,8 @@ private func gradeAttempts(in cell: Element?) throws -> [GradeAttempt] {
         let columns = try attemptRow.select("td").array()
         guard let labelCell = columns.first else { continue }
         let heading = try labelCell.text().cleanedPortalText()
-        if columns.count < 2 || !(try labelCell.attr("colspan")).isEmpty {
+        let colspan = try labelCell.attr("colspan")
+        if columns.count < 2 || !colspan.isEmpty {
             context = attemptContext(heading)
             continue
         }
