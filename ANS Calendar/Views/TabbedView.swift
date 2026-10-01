@@ -24,34 +24,19 @@ struct TabbedView: View {
                     .environmentObject(VerbisANSApi)
             }
             .badge(Messages.UnreadMessages)
+            Tab("Grades", systemImage: "graduationcap") {
+                GradesView()
+            }
+            Tab("Profile", systemImage: "person.crop.circle") {
+                ProfileView()
+            }
             Tab("Settings", systemImage: "slider.horizontal.3") {
-                Form {
-                    // 2. Add an Account section for user actions
-                    Section(header: Text("Account")) {
-                        Button("Change Password") {
-                            showPasswordChangeSheet = true
-                        }
-                        
-                        Button("Logout") {
-                            Task {
-                                await VerbisANSApi.Logout()
-                            }
-                        }
-                        .foregroundColor(.red) // Optional: highlights the destructive action
-                    }
-                    
-                    Section(header: Text("Debug")) {
-                        Text(VerbisANSApi.JSessionID)
-                        Text(String(VerbisANSApi.StudentID))
-                        Text(String(VerbisANSApi.TourID))
-                        Button("Invalidate SessionID") {
-                            VerbisANSApi.JSessionID = ""
-                            UserDefaults.standard.set("", forKey: "JSessionID")
-                        }
-                    }
-                }
+                SettingsView(showPasswordChangeSheet: $showPasswordChangeSheet)
             }
         }
+        .tabViewStyle(.tabBarOnly)
+        .toolbarBackground(.ultraThinMaterial, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
         // 3. Bind the sheet to BOTH the manual button press and the API error
         .sheet(isPresented: Binding(
             get: {

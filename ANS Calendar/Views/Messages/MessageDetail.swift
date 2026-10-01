@@ -27,8 +27,16 @@ struct MessageDetail: View {
                         .padding()
                     ForEach(Thread) { thread in
                         VStack(alignment: .leading, spacing: 10) {
-                            Text(thread.Sender)
-                                .font(.headline)
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(thread.Sender)
+                                    .font(.headline)
+                                Spacer()
+                                if let sentAt = thread.SentAt {
+                                    Text(verbisMessageDateText(sentAt))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                             Divider()
                             ForEach(0..<thread.Content.count) { paragraphId in
                                 Text(.init(thread.Content[paragraphId]))

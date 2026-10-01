@@ -42,6 +42,7 @@ struct MessageContent: Codable, Identifiable {
     
     var Content: [String] = []
     var Sender: String = ""
+    var SentAt: Date? = nil
     var Attachments: [Attachment] = []
 }
 
@@ -105,24 +106,23 @@ class MessagesModel: ObservableObject {
             let messageHeaders: Elements = try doc.select(".wiadomosc-tr-header")
             let MessagesContentHeader: Elements = try doc.select(".wiadomosc-tr-content-header")
             
-            let DateFormatter = DateFormatter()
-            DateFormatter.locale = Locale(identifier: "en_US_POSIX")
-            DateFormatter.dateFormat = "dd.MM.yyyy HH:mm"
-            let DateRegex = /\d+.\d.+.\d+ \d+:\d+/
-            
+            let contentHeaders = MessagesContentHeader.array()
             for (index, messageHeader) in messageHeaders.enumerated() {
-                let Sender = try messageHeader.select(".wiadomosc-nadawca").array()[0].text()
-                let Title = try messageHeader.select(".wiadomosc-zawartosc-glowna").array()[0].text()
-                let Content = try messageHeader.select(".wiadomosc-zawartosc-szczegoly").array()[0].text()
+                guard let Sender = try messageHeader.select(".wiadomosc-nadawca").array().first?.text(),
+                      let Title = try messageHeader.select(".wiadomosc-zawartosc-glowna").array().first?.text(),
+                      let Content = try messageHeader.select(".wiadomosc-zawartosc-szczegoly").array().first?.text()
+                else { continue }
                 let Unread = messageHeader.hasClass("wiadomosci-nowe")
                 
                 var MessageDate = Date()
-                if let Match = try MessagesContentHeader[index].select("div")[1].text().firstMatch(of: DateRegex) {
-                    MessageDate = DateFormatter.date(from: String(Match.0))!
+                if index < contentHeaders.count, let parsedDate = try messageDate(in: contentHeaders[index]) {
+                    MessageDate = parsedDate
                 }
                 
-                let RowData = (try messageHeader.attr("data-vdo-dane-wiersza").data(using: .utf8))!
-                let MessageData = try! JSONDecoder().decode(MessageData.self, from: RowData)
+                let rawRow = try messageHeader.attr("data-vdo-dane-wiersza")
+                guard let RowData = rawRow.data(using: .utf8),
+                      let MessageData = try? JSONDecoder().decode(MessageData.self, from: RowData)
+                else { continue }
                 
                 let Message = Message(Sender: Sender, Title: Title, PreviewContent: Content, Unread: Unread, MessageData: MessageData, Date: MessageDate)
                 
@@ -149,11 +149,12 @@ class MessagesModel: ObservableObject {
             
             let MailboxIDRegex = /(idskrzynki=)(\d+)/
             
-            let scripts: Elements = try! doc.select(".wiadomosci-view-tab")
+            let scripts: Elements = try doc.select(".wiadomosci-view-tab")
             
             for script in scripts {
-                if let match = try script.attr("href").firstMatch(of: MailboxIDRegex) {
-                    MailboxID = NumberFormatter().number(from: String(match.2))!.intValue
+                if let match = try script.attr("href").firstMatch(of: MailboxIDRegex),
+                   let mailbox = Int(match.2) {
+                    MailboxID = mailbox
                     break
                 }
             }
@@ -184,12 +185,19 @@ class MessagesModel: ObservableObject {
             
             var MessageThread: [MessageContent] = []
             
+            let messageHeaders = MessagesHeader.array()
             for (index, MessageData) in MessagesRowContent.enumerated() {
                 var MessageContentData = MessageContent()
                 
-                MessageContentData.Sender = try MessagesHeader[index].select("div")[0].text()
+                guard index < messageHeaders.count else { continue }
+                let header = messageHeaders[index]
+                let headerDivs = try header.select("div").array()
+                let senderElement = try header.select(".fltlft").array().first ?? headerDivs.first
+                guard let senderElement, let sender = try? senderElement.text(), !sender.isEmpty else { continue }
+                MessageContentData.Sender = sender
+                MessageContentData.SentAt = try messageDate(in: header)
                 
-                let MessageTextContent = try MessageData.select(".wiadomosc-content")[0]
+                guard let MessageTextContent = try MessageData.select(".wiadomosc-content").array().first else { continue }
                 
                 let nodes = MessageTextContent.getChildNodes()
                 
@@ -221,21 +229,14 @@ class MessagesModel: ObservableObject {
                 
                 MessageContentData.Content = paragraphs
                 
-                let AttachmentsElements: Elements = try MessageData.select(".pliki-content")
-                if AttachmentsElements.array().count > 0 {
-                    if let MessageFiles = AttachmentsElements[0] as? Element {
-                        for MessageFile: Element in try MessageFiles.select("div").array() {
-                            if !MessageFile.hasClass("pliki-content") {
-                                var MessageAttachment = Attachment()
-                                let link = try MessageFile.select("a")[0]
-                                
-                                MessageAttachment.Size = MessageFile.ownText()
-                                MessageAttachment.AttachmentName = try link.text()
-                                MessageAttachment.Link = try link.attr("href")
-                                
-                                MessageContentData.Attachments.append(MessageAttachment)
-                            }
-                        }
+                if let filesContainer = try MessageData.select(".pliki-content").array().first {
+                    for MessageFile in try filesContainer.select("div").array() where !MessageFile.hasClass("pliki-content") {
+                        guard let link = try MessageFile.select("a").array().first else { continue }
+                        var MessageAttachment = Attachment()
+                        MessageAttachment.Size = MessageFile.ownText()
+                        MessageAttachment.AttachmentName = try link.text()
+                        MessageAttachment.Link = try link.attr("href")
+                        MessageContentData.Attachments.append(MessageAttachment)
                     }
                 }
                 
@@ -261,5 +262,17 @@ class MessagesModel: ObservableObject {
         } catch {
             
         }
+    }
+
+    /// Date sits in `<div class="fltrt">wtorek 30.06.2026 13:04</div>` inside the content header.
+    private func messageDate(in header: Element) throws -> Date? {
+        let floated = try header.select(".fltrt").array()
+        let candidates = floated.isEmpty ? try header.select("div").array() : floated
+        for element in candidates {
+            if let date = parseVerbisMessageDate(try element.text()) {
+                return date
+            }
+        }
+        return parseVerbisMessageDate(try header.text())
     }
 }
