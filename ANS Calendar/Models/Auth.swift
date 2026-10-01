@@ -17,16 +17,20 @@ enum VerbisAPIError: Error, LocalizedError, Equatable {
     case BadPassword
     case NoUser
     case ExpiredPassword
+    case SignInFailed
     case PasswordsDoNotMatch
     case WeakPassword
-    case ChangeFailed(String) // Now accepts the parsed error message
+    case ChangeFailed(String)
     
     var errorDescription: String? {
         switch self {
-        case .PasswordsDoNotMatch: return "The new passwords do not match."
+        case .BadPassword: return "The album number or password is incorrect."
+        case .NoUser: return "Enter your album number."
+        case .ExpiredPassword: return "Your password has expired."
+        case .SignInFailed: return "Couldn't sign in. Check your connection and try again."
+        case .PasswordsDoNotMatch: return "Passwords do not match."
         case .WeakPassword: return "Password must be at least 8 characters long, contain one uppercase letter, one lowercase letter, and one number."
-        case .ChangeFailed(let message): return message // Returns the server's exact error
-        default: return "An unknown authentication error occurred."
+        case .ChangeFailed(let message): return message
         }
     }
 }
@@ -75,6 +79,7 @@ class VerbisAPI: ObservableObject {
     func Login(user: String, pass: String) async throws {
         do {
             IsBusy = true
+            AuthError = nil
             guard !user.isEmpty else {
                 throw VerbisAPIError.NoUser
             }
@@ -174,7 +179,12 @@ class VerbisAPI: ObservableObject {
                 await GetSemesterID()
             }
         } catch {
-            
+            IsBusy = false
+            if let error = error as? VerbisAPIError {
+                AuthError = error
+            } else {
+                AuthError = .SignInFailed
+            }
         }
     }
     

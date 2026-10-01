@@ -368,6 +368,20 @@ struct ANS_CalendarTests {
         #expect(decoded.exceptionClass == nil)
     }
 
+    @Test func confirmPasswordRejectsAMismatch() {
+        #expect(!passwordConfirmationMismatch(newPassword: "Secret1a", confirmation: ""))
+        #expect(!passwordConfirmationMismatch(newPassword: "Secret1a", confirmation: "Secret1a"))
+        #expect(passwordConfirmationMismatch(newPassword: "Secret1a", confirmation: "Secret1b"))
+        #expect(passwordConfirmationMismatch(newPassword: "", confirmation: "Secret1a"))
+        #expect(passwordMeetsRules("Secret1a"))
+        #expect(!passwordMeetsRules("secret1a"))
+        #expect(!passwordMeetsRules("SECRET1A"))
+        #expect(!passwordMeetsRules("SecretAA"))
+        #expect(!passwordMeetsRules("Aa1"))
+        #expect(VerbisAPIError.BadPassword.errorDescription == "The album number or password is incorrect.")
+        #expect(VerbisAPIError.PasswordsDoNotMatch.errorDescription == "Passwords do not match.")
+    }
+
     private func date(year: Int, month: Int, day: Int) -> Date {
         calendar.date(from: DateComponents(year: year, month: month, day: day))!
     }

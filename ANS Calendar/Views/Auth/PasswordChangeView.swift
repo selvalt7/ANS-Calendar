@@ -1,87 +1,152 @@
 import SwiftUI
 
+func passwordConfirmationMismatch(newPassword: String, confirmation: String) -> Bool {
+    !confirmation.isEmpty && newPassword != confirmation
+}
+
+func passwordMeetsRules(_ password: String) -> Bool {
+    password.range(of: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{8,}$", options: .regularExpression) != nil
+}
+
 struct PasswordChangeView: View {
-    @EnvironmentObject var api: VerbisAPI // Access the API instance
+    @EnvironmentObject var api: VerbisAPI
     @Environment(\.dismiss) var dismiss
-    
-    @State private var OldPassword: String = ""
-    @State private var NewPassword: String = ""
-    @State private var ConfirmPassword: String = ""
-    
-    // Alert state variables
+
+    @State private var oldPassword: String = ""
+    @State private var newPassword: String = ""
+    @State private var confirmPassword: String = ""
+    @FocusState private var focusedField: PasswordField?
+
     @State private var showAlert = false
     @State private var alertMessage = ""
     @State private var alertTitle = ""
-    
+    @State private var passwordDidChange = false
+
+    private var mustChangePassword: Bool { api.AuthError == .ExpiredPassword }
+    private var passwordsMismatch: Bool { passwordConfirmationMismatch(newPassword: newPassword, confirmation: confirmPassword) }
+    private var newPasswordIsValid: Bool { passwordMeetsRules(newPassword) }
+    private var canSubmit: Bool {
+        !oldPassword.isEmpty && newPasswordIsValid && !confirmPassword.isEmpty && !passwordsMismatch && !api.IsBusy
+    }
+
     var body: some View {
-        VStack(spacing: 15) {
-            Text("Password Change")
-                .font(.title)
-                .fontWeight(.bold)
-                .padding(.bottom, 10)
-            
-            SecureField("Old Password", text: $OldPassword)
-                .textContentType(.password)
-                .textFieldStyle(.roundedBorder)
-            
-            SecureField("New Password", text: $NewPassword)
-                .textContentType(.newPassword)
-                .textFieldStyle(.roundedBorder)
-            
-            SecureField("Confirm Password", text: $ConfirmPassword)
-                .textContentType(.newPassword)
-                .textFieldStyle(.roundedBorder)
-            
-            // Helpful text letting the user know the requirements
-            Text("Must be at least 8 characters, with 1 uppercase, 1 lowercase, and 1 number.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-            
-            Button {
-                changePasswordAction()
-            } label: {
-                if api.IsBusy {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle())
-                } else {
-                    Text("Change Password")
+        NavigationStack {
+            Form {
+                if mustChangePassword {
+                    Section {
+                        Label("Your password has expired. Choose a new one to continue.", systemImage: "exclamationmark.shield")
+                            .font(.subheadline)
+                            .foregroundStyle(.orange)
+                    }
+                }
+
+                Section {
+                    SecureField("Current password", text: $oldPassword)
+                        .textContentType(.password)
+                        .focused($focusedField, equals: .current)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .new }
+                }
+
+                Section {
+                    SecureField("New password", text: $newPassword)
+                        .textContentType(.newPassword)
+                        .focused($focusedField, equals: .new)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .confirm }
+
+                    SecureField("Confirm password", text: $confirmPassword)
+                        .textContentType(.newPassword)
+                        .focused($focusedField, equals: .confirm)
+                        .submitLabel(.done)
+                        .onSubmit(changePasswordAction)
+
+                    if passwordsMismatch {
+                        Label("Passwords do not match.", systemImage: "exclamationmark.circle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .accessibilityAddTraits(.isStaticText)
+                    }
+                } footer: {
+                    if !passwordsMismatch && !confirmPassword.isEmpty && newPassword == confirmPassword {
+                        Text("Passwords match.")
+                            .foregroundStyle(.green)
+                    }
+                }
+
+                Section("New password must have") {
+                    requirementRow("At least 8 characters", isMet: newPassword.count >= 8)
+                    requirementRow("One uppercase letter", isMet: newPassword.range(of: "[A-Z]", options: .regularExpression) != nil)
+                    requirementRow("One lowercase letter", isMet: newPassword.range(of: "[a-z]", options: .regularExpression) != nil)
+                    requirementRow("One number", isMet: newPassword.range(of: #"\d"#, options: .regularExpression) != nil)
+                }
+
+                Section {
+                    Button(action: changePasswordAction) {
+                        HStack {
+                            Spacer()
+                            if api.IsBusy {
+                                ProgressView()
+                                    .tint(.white)
+                            } else {
+                                Text("Change Password")
+                                    .font(.headline)
+                            }
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canSubmit)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                    .listRowBackground(Color.clear)
                 }
             }
-            .buttonStyle(.borderedProminent) // Use prominent style for primary actions
-            .disabled(OldPassword.isEmpty || NewPassword.isEmpty || ConfirmPassword.isEmpty || api.IsBusy)
-            .padding(.top, 10)
+            .navigationTitle("Change Password")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if !mustChangePassword {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
+                }
+            }
         }
-        .padding()
-        .interactiveDismissDisabled()
-        .alert(isPresented: $showAlert) {
-            Alert(title: Text(alertTitle), message: Text(alertMessage), dismissButton: .default(Text("OK")))
+        .interactiveDismissDisabled(mustChangePassword)
+        .alert(alertTitle, isPresented: $showAlert) {
+            Button("OK") {
+                if passwordDidChange {
+                    dismiss()
+                }
+            }
+        } message: {
+            Text(alertMessage)
         }
     }
-    
+
+    private func requirementRow(_ title: String, isMet: Bool) -> some View {
+        Label(title, systemImage: isMet ? "checkmark.circle.fill" : "circle")
+            .font(.subheadline)
+            .foregroundStyle(isMet ? Color.green : Color.secondary)
+    }
+
     private func changePasswordAction() {
+        guard canSubmit else { return }
+        focusedField = nil
         Task {
             do {
-                try await api.ChangePassword(Old: OldPassword, New: NewPassword, Confirm: ConfirmPassword)
-                
-                // On success
-                alertTitle = "Success"
-                alertMessage = "Your password has been changed successfully."
+                try await api.ChangePassword(Old: oldPassword, New: newPassword, Confirm: confirmPassword)
+                passwordDidChange = true
+                alertTitle = "Password changed"
+                alertMessage = "Your password has been changed."
                 showAlert = true
-                
-                // Optional: Clear fields on success
-                OldPassword = ""
-                NewPassword = ""
-                ConfirmPassword = ""
-                dismiss()
-                
             } catch let error as VerbisAPIError {
-                alertTitle = "Error"
+                passwordDidChange = false
+                alertTitle = "Couldn't change password"
                 alertMessage = error.localizedDescription
                 showAlert = true
             } catch {
-                alertTitle = "Error"
+                passwordDidChange = false
+                alertTitle = "Couldn't change password"
                 alertMessage = "An unexpected error occurred."
                 showAlert = true
             }
@@ -89,7 +154,13 @@ struct PasswordChangeView: View {
     }
 }
 
+private enum PasswordField {
+    case current
+    case new
+    case confirm
+}
+
 #Preview {
     PasswordChangeView()
-        .environmentObject(VerbisAPI()) // Inject a mock/test object for the preview
+        .environmentObject(VerbisAPI())
 }
