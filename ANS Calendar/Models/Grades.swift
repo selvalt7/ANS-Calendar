@@ -187,12 +187,12 @@ final class GradesModel: ObservableObject {
     }
 }
 
-private func parseSemester(_ row: Element, id: String, document: Document) throws -> StudySemester {
+private func parseSemester(_ row: Element, id: String, document: SwiftSoup.Document) throws -> StudySemester {
     let term = try text(of: cell(in: row, headers: "th-semestr"))
     let track = try text(of: cell(in: row, headers: "th-tok-studiow"))
     let groupCell = try cell(in: row, headers: "th-grupa-dziekanska")
     let group = try text(of: groupCell)
-    let programTitle = try (groupCell?.attr("title") ?? "").cleanedPortalText()
+    let programTitle = (try groupCell?.attr("title") ?? "").cleanedPortalText()
     let details = try document.getElementById("tr-progress-details\(id)")
     return StudySemester(
         id: id,
@@ -227,13 +227,13 @@ private func courses(in details: Element?) throws -> [CourseGrade] {
 private func parseCourse(_ row: Element) throws -> CourseGrade {
     let gradeCell = try cell(in: row, headerSuffix: "-ocena")
     let gradeSpan = directSpans(gradeCell).first
-    let grade = try (gradeSpan?.text() ?? "").cleanedPortalText()
+    let grade = (try gradeSpan?.text() ?? "").cleanedPortalText()
     let pending = gradeSpan?.hasClass("inactive") == true || isEmptyGrade(grade)
     let hoursCell = try cell(in: row, headerSuffix: "-godziny")
     let ectsCell = try cell(in: row, headerSuffix: "-ects")
     let passCell = try cell(in: row, headerSuffix: "-typ-zaliczenia")
     let passSpan = directSpans(passCell).first
-    let passToken = try (passSpan?.text() ?? "").cleanedPortalText()
+    let passToken = (try passSpan?.text() ?? "").cleanedPortalText()
     let passTitle = try passSpan?.attr("title") ?? ""
     let costCell = try cell(in: row, headerSuffix: "-jk")
     let rowID = try row.attr("id")
@@ -264,10 +264,10 @@ private func coordinator(in cell: Element?) throws -> String? {
     let version = cell.children().array().first { node in
         node.tagName().lowercased() == "div" && !node.hasClass("dijitTooltipData")
     }
-    let shortName = try (version?.text() ?? "").cleanedPortalText()
+    let shortName = (try version?.text() ?? "").cleanedPortalText()
     let versionID = try version?.attr("id") ?? ""
     let tooltip = versionID.isEmpty ? nil : tooltipDivs(cell).first { (try? $0.attr("connectid")) == versionID }
-    let fullName = try (tooltip?.text() ?? "").cleanedPortalText()
+    let fullName = (try tooltip?.text() ?? "").cleanedPortalText()
     let value = translateNoData(fullName.isEmpty ? shortName : fullName)
     return value.isEmpty ? nil : value
 }

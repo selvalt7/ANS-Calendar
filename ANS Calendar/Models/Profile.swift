@@ -52,7 +52,7 @@ func parseStudentProfile(html: String) throws -> StudentProfile {
     )
 }
 
-private func profileFields(in document: Document, selector: String) throws -> [ProfileField] {
+private func profileFields(in document: SwiftSoup.Document, selector: String) throws -> [ProfileField] {
     guard let container = try document.select(selector).array().first else { return [] }
     let rows = container.children().array().filter { $0.tagName().lowercased() == "div" }
     var fields: [ProfileField] = []
