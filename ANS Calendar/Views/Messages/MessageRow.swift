@@ -20,7 +20,7 @@ struct MessageRow: View {
                     Text(Message.Sender)
                         .font(.headline)
                     Spacer()
-                    Text(Message.Date.formatted(date: .abbreviated, time: .shortened))
+                    Text(verbisMessageDateText(Message.Date))
                         .font(.caption)
                 }
                 Text(Message.Title)

@@ -12,6 +12,20 @@ import Foundation
 struct ANS_CalendarTests {
     private let calendar = Calendar.ans
 
+    @Test func messageDateIgnoresPolishWeekday() {
+        let parsed = parseVerbisMessageDate("wtorek 30.06.2026 13:04")
+        let calendar = Calendar.ans
+        #expect(parsed != nil)
+        #expect(calendar.component(.day, from: parsed!) == 30)
+        #expect(calendar.component(.month, from: parsed!) == 6)
+        #expect(calendar.component(.year, from: parsed!) == 2026)
+        #expect(calendar.component(.hour, from: parsed!) == 13)
+        #expect(calendar.component(.minute, from: parsed!) == 4)
+        #expect(verbisMessageDateText(parsed!) == "30.06.2026 13:04")
+        #expect(parseVerbisMessageDate("mgr Katarzyna Wysocka") == nil)
+        #expect(parseVerbisMessageDate("30.06.2026 13:04") == parsed)
+    }
+
     @Test func distancesCountCalendarDays() {
         let october = date(year: 2026, month: 10, day: 1)
         let january = date(year: 2026, month: 1, day: 31)

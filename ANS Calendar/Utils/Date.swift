@@ -143,3 +143,43 @@ extension Date {
 
     var minutesFromMidnight: Int { Hour * 60 + Minute }
 }
+
+/// Portal messages look like "wtorek 30.06.2026 13:04". The weekday is Polish and is ignored.
+func parseVerbisMessageDate(_ raw: String) -> Date? {
+    let text = raw
+        .replacingOccurrences(of: "\u{00A0}", with: " ")
+        .replacingOccurrences(of: "\u{202F}", with: " ")
+    guard let match = text.firstMatch(of: /(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})/),
+          let day = Int(match.1),
+          let month = Int(match.2),
+          let year = Int(match.3),
+          let hour = Int(match.4),
+          let minute = Int(match.5),
+          (1...31).contains(day),
+          (1...12).contains(month),
+          (0...23).contains(hour),
+          (0...59).contains(minute)
+    else { return nil }
+
+    var components = DateComponents()
+    components.calendar = .ans
+    components.timeZone = Calendar.ans.timeZone
+    components.year = year
+    components.month = month
+    components.day = day
+    components.hour = hour
+    components.minute = minute
+    return Calendar.ans.date(from: components)
+}
+
+func verbisMessageDateText(_ date: Date) -> String {
+    let calendar = Calendar.ans
+    return String(
+        format: "%02d.%02d.%04d %02d:%02d",
+        calendar.component(.day, from: date),
+        calendar.component(.month, from: date),
+        calendar.component(.year, from: date),
+        calendar.component(.hour, from: date),
+        calendar.component(.minute, from: date)
+    )
+}

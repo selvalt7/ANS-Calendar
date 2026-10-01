@@ -42,6 +42,7 @@ struct MessageContent: Codable, Identifiable {
     
     var Content: [String] = []
     var Sender: String = ""
+    var SentAt: Date? = nil
     var Attachments: [Attachment] = []
 }
 
@@ -105,11 +106,6 @@ class MessagesModel: ObservableObject {
             let messageHeaders: Elements = try doc.select(".wiadomosc-tr-header")
             let MessagesContentHeader: Elements = try doc.select(".wiadomosc-tr-content-header")
             
-            let DateFormatter = DateFormatter()
-            DateFormatter.locale = Locale(identifier: "en_US_POSIX")
-            DateFormatter.dateFormat = "dd.MM.yyyy HH:mm"
-            let DateRegex = /\d+.\d.+.\d+ \d+:\d+/
-            
             let contentHeaders = MessagesContentHeader.array()
             for (index, messageHeader) in messageHeaders.enumerated() {
                 guard let Sender = try messageHeader.select(".wiadomosc-nadawca").array().first?.text(),
@@ -119,13 +115,8 @@ class MessagesModel: ObservableObject {
                 let Unread = messageHeader.hasClass("wiadomosci-nowe")
                 
                 var MessageDate = Date()
-                if index < contentHeaders.count {
-                    let headerDivs = try contentHeaders[index].select("div").array()
-                    if headerDivs.count > 1,
-                       let Match = try headerDivs[1].text().firstMatch(of: DateRegex),
-                       let parsedDate = DateFormatter.date(from: String(Match.0)) {
-                        MessageDate = parsedDate
-                    }
+                if index < contentHeaders.count, let parsedDate = try messageDate(in: contentHeaders[index]) {
+                    MessageDate = parsedDate
                 }
                 
                 let rawRow = try messageHeader.attr("data-vdo-dane-wiersza")
@@ -199,9 +190,12 @@ class MessagesModel: ObservableObject {
                 var MessageContentData = MessageContent()
                 
                 guard index < messageHeaders.count else { continue }
-                let headerDivs = try messageHeaders[index].select("div").array()
-                guard let sender = try headerDivs.first?.text() else { continue }
+                let header = messageHeaders[index]
+                let headerDivs = try header.select("div").array()
+                let senderElement = try header.select(".fltlft").array().first ?? headerDivs.first
+                guard let senderElement, let sender = try? senderElement.text(), !sender.isEmpty else { continue }
                 MessageContentData.Sender = sender
+                MessageContentData.SentAt = try messageDate(in: header)
                 
                 guard let MessageTextContent = try MessageData.select(".wiadomosc-content").array().first else { continue }
                 
@@ -268,5 +262,17 @@ class MessagesModel: ObservableObject {
         } catch {
             
         }
+    }
+
+    /// Date sits in `<div class="fltrt">wtorek 30.06.2026 13:04</div>` inside the content header.
+    private func messageDate(in header: Element) throws -> Date? {
+        let floated = try header.select(".fltrt").array()
+        let candidates = floated.isEmpty ? try header.select("div").array() : floated
+        for element in candidates {
+            if let date = parseVerbisMessageDate(try element.text()) {
+                return date
+            }
+        }
+        return parseVerbisMessageDate(try header.text())
     }
 }
