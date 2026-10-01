@@ -145,23 +145,41 @@ extension Date {
     var minutesFromMidnight: Int { Hour * 60 + Minute }
 }
 
-/// Portal messages look like "wtorek 30.06.2026 13:04". The weekday is Polish and is ignored.
-/// Also accepts date-only values and separators such as commas or newlines.
-func parseVerbisMessageDate(_ raw: String) -> Date? {
-    let text = raw
+struct VerbisMessageDate: Equatable {
+    let date: Date
+    let includesTime: Bool
+}
+
+func normalizeVerbisMessageDateText(_ raw: String) -> String {
+    raw
         .replacingOccurrences(of: "\u{00A0}", with: " ")
         .replacingOccurrences(of: "\u{202F}", with: " ")
         .replacingOccurrences(of: ",", with: " ")
         .replacingOccurrences(of: "\n", with: " ")
         .replacingOccurrences(of: "\r", with: " ")
+}
+
+func verbisMessageTextHasClockTime(_ raw: String) -> Bool {
+    normalizeVerbisMessageDateText(raw).contains(/\d{1,2}:\d{2}/)
+}
+
+/// Portal messages look like "wtorek 30.06.2026 13:04". The weekday is Polish and is ignored.
+/// Also accepts date-only values and separators such as commas or newlines.
+func parseVerbisMessageDate(_ raw: String) -> Date? {
+    parseVerbisMessageDateValue(raw)?.date
+}
+
+func parseVerbisMessageDateValue(_ raw: String) -> VerbisMessageDate? {
+    let text = normalizeVerbisMessageDateText(raw)
 
     let day: Int
     let month: Int
     let year: Int
     let hour: Int
     let minute: Int
+    let includesTime: Bool
 
-    if let match = text.firstMatch(of: /(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})/),
+    if let match = text.firstMatch(of: /(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})(?::\d{2})?/),
        let parsedDay = Int(match.1),
        let parsedMonth = Int(match.2),
        let parsedYear = Int(match.3),
@@ -176,6 +194,7 @@ func parseVerbisMessageDate(_ raw: String) -> Date? {
         year = parsedYear
         hour = parsedHour
         minute = parsedMinute
+        includesTime = true
     } else if let match = text.firstMatch(of: /(\d{1,2})\.(\d{1,2})\.(\d{4})/),
               let parsedDay = Int(match.1),
               let parsedMonth = Int(match.2),
@@ -187,6 +206,7 @@ func parseVerbisMessageDate(_ raw: String) -> Date? {
         year = parsedYear
         hour = 0
         minute = 0
+        includesTime = false
     } else {
         return nil
     }
@@ -199,32 +219,52 @@ func parseVerbisMessageDate(_ raw: String) -> Date? {
     components.day = day
     components.hour = hour
     components.minute = minute
-    return Calendar.ans.date(from: components)
+    guard let date = Calendar.ans.date(from: components) else { return nil }
+    return VerbisMessageDate(date: date, includesTime: includesTime)
 }
 
-/// Date sits in `<div class="fltrt">wtorek 30.06.2026 13:04</div>` or any nearby cell/text.
+/// Prefer the full element text so date and time split across child nodes still combine.
+/// Timed `.fltrt` values win over date-only fragments.
 func verbisMessageDate(in element: Element) throws -> Date? {
-    let floated = try element.select(".fltrt").array()
-    let candidates = floated.isEmpty ? try element.select("div, td, span").array() : floated
-    for candidate in candidates {
-        if let date = parseVerbisMessageDate(try candidate.text()) {
-            return date
-        }
-        if let date = parseVerbisMessageDate(candidate.ownText()) {
-            return date
+    try verbisMessageDateValue(in: element)?.date
+}
+
+func verbisMessageDateValue(in element: Element) throws -> VerbisMessageDate? {
+    let fullText = try element.text()
+    if let timed = parseVerbisMessageDateValue(fullText), timed.includesTime {
+        return timed
+    }
+
+    for floated in try element.select(".fltrt").array() {
+        let text = try floated.text()
+        if let timed = parseVerbisMessageDateValue(text), timed.includesTime {
+            return timed
         }
     }
-    return parseVerbisMessageDate(try element.text())
+
+    if let timed = parseVerbisMessageDateValue(fullText), timed.includesTime {
+        return timed
+    }
+
+    return parseVerbisMessageDateValue(fullText)
 }
 
-func verbisMessageDateText(_ date: Date) -> String {
+func verbisMessageDateText(_ date: Date, includeTime: Bool = true) -> String {
     let calendar = Calendar.ans
+    if includeTime {
+        return String(
+            format: "%02d.%02d.%04d %02d:%02d",
+            calendar.component(.day, from: date),
+            calendar.component(.month, from: date),
+            calendar.component(.year, from: date),
+            calendar.component(.hour, from: date),
+            calendar.component(.minute, from: date)
+        )
+    }
     return String(
-        format: "%02d.%02d.%04d %02d:%02d",
+        format: "%02d.%02d.%04d",
         calendar.component(.day, from: date),
         calendar.component(.month, from: date),
-        calendar.component(.year, from: date),
-        calendar.component(.hour, from: date),
-        calendar.component(.minute, from: date)
+        calendar.component(.year, from: date)
     )
 }

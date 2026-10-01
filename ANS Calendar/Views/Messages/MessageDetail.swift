@@ -32,7 +32,7 @@ struct MessageDetail: View {
                                     .font(.headline)
                                 Spacer()
                                 if let sentAt = thread.SentAt {
-                                    Text(verbisMessageDateText(sentAt))
+                                    Text(verbisMessageDateText(sentAt, includeTime: true))
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -56,6 +56,13 @@ struct MessageDetail: View {
             }
             .task {
                 await Thread = MessagesModel.FetchMessage(VerbisAnsAPI: VerbisAnsAPI, MessageData: Message.MessageData)
+                if let sentAt = Thread.compactMap(\.SentAt).first {
+                    MessagesModel.updateMessageDate(
+                        threadId: Message.MessageData.idWatku,
+                        date: sentAt,
+                        includesTime: true
+                    )
+                }
                 
                 await MessagesModel.NotifyRead(VerbisAPI: VerbisAnsAPI, MessageData: Message.MessageData)
             }

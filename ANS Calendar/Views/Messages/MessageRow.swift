@@ -21,7 +21,7 @@ struct MessageRow: View {
                         .font(.headline)
                     Spacer()
                     if let sentAt = Message.Date {
-                        Text(verbisMessageDateText(sentAt))
+                        Text(verbisMessageDateText(sentAt, includeTime: Message.DateHasTime))
                             .font(.caption)
                     }
                 }

@@ -252,23 +252,26 @@ struct ANS_CalendarTests {
     }
 
     @Test func messageDateIgnoresPolishWeekday() {
-        let parsed = parseVerbisMessageDate("wtorek 30.06.2026 13:04")
+        let parsed = parseVerbisMessageDateValue("wtorek 30.06.2026 13:04")
         let calendar = Calendar.ans
         #expect(parsed != nil)
-        #expect(calendar.component(.day, from: parsed!) == 30)
-        #expect(calendar.component(.month, from: parsed!) == 6)
-        #expect(calendar.component(.year, from: parsed!) == 2026)
-        #expect(calendar.component(.hour, from: parsed!) == 13)
-        #expect(calendar.component(.minute, from: parsed!) == 4)
-        #expect(verbisMessageDateText(parsed!) == "30.06.2026 13:04")
+        #expect(parsed?.includesTime == true)
+        #expect(calendar.component(.day, from: parsed!.date) == 30)
+        #expect(calendar.component(.month, from: parsed!.date) == 6)
+        #expect(calendar.component(.year, from: parsed!.date) == 2026)
+        #expect(calendar.component(.hour, from: parsed!.date) == 13)
+        #expect(calendar.component(.minute, from: parsed!.date) == 4)
+        #expect(verbisMessageDateText(parsed!.date) == "30.06.2026 13:04")
         #expect(parseVerbisMessageDate("mgr Katarzyna Wysocka") == nil)
-        #expect(parseVerbisMessageDate("30.06.2026 13:04") == parsed)
-        #expect(parseVerbisMessageDate("30.06.2026, 13:04") == parsed)
+        #expect(parseVerbisMessageDate("30.06.2026 13:04") == parsed?.date)
+        #expect(parseVerbisMessageDate("30.06.2026, 13:04") == parsed?.date)
+        #expect(parseVerbisMessageDate("30.06.2026 13:04:59") == parsed?.date)
 
-        let dateOnly = parseVerbisMessageDate("30.06.2026")
+        let dateOnly = parseVerbisMessageDateValue("30.06.2026")
         #expect(dateOnly != nil)
-        #expect(calendar.component(.day, from: dateOnly!) == 30)
-        #expect(calendar.component(.hour, from: dateOnly!) == 0)
+        #expect(dateOnly?.includesTime == false)
+        #expect(calendar.component(.day, from: dateOnly!.date) == 30)
+        #expect(verbisMessageDateText(dateOnly!.date, includeTime: false) == "30.06.2026")
     }
 
     @Test func messageListReadsDatesFromHiddenContentHeaders() throws {
@@ -279,7 +282,7 @@ struct ANS_CalendarTests {
             <td>
               <div class="wiadomosc-nadawca">mgr Katarzyna Wysocka</div>
               <div class="wiadomosc-zawartosc-glowna">Important notice</div>
-              <div class="wiadomosc-zawartosc-szczegoly">Please read</div>
+              <div class="wiadomosc-zawartosc-szczegoly">Please read on 01.01.2020</div>
             </td>
             <td></td>
           </tr>
@@ -314,12 +317,84 @@ struct ANS_CalendarTests {
         #expect(messages[0].Title == "Important notice")
         #expect(messages[0].Unread)
         #expect(messages[0].Date != nil)
+        #expect(messages[0].DateHasTime)
         #expect(verbisMessageDateText(messages[0].Date!) == "30.06.2026 13:04")
 
         #expect(messages[1].Sender == "Jan Kowalski")
         #expect(messages[1].Date != nil)
+        #expect(messages[1].DateHasTime)
         #expect(verbisMessageDateText(messages[1].Date!) == "01.05.2026 09:15")
         #expect(messages[0].Date != messages[1].Date)
+    }
+
+    @Test func messageListReadsDatesAcrossSeparateTbodyWrappers() throws {
+        let html = """
+        <table>
+          <tbody>
+            <tr class="wiadomosc-tr-header" data-vdo-dane-wiersza='{"typWiersza":"W","idWatku":11,"idSkrzynkiUczestnika":21,"idWszystkichWiadomosci":[31]}'>
+              <td>
+                <div class="wiadomosc-nadawca">mgr Katarzyna Wysocka</div>
+                <div class="wiadomosc-zawartosc-glowna">Important notice</div>
+                <div class="wiadomosc-zawartosc-szczegoly">Please read</div>
+              </td>
+              <td><div>30.06.2026</div><div>13:04</div></td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="wiadomosc-tr-content-header" style="display: none;">
+              <td colspan="3">
+                <div class="fltlft">mgr Katarzyna Wysocka</div>
+                <div class="fltrt">wtorek 30.06.2026 13:04</div>
+              </td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="wiadomosc-tr-header" data-vdo-dane-wiersza='{"typWiersza":"W","idWatku":12,"idSkrzynkiUczestnika":22,"idWszystkichWiadomosci":[32]}'>
+              <td>
+                <div class="wiadomosc-nadawca">Jan Kowalski</div>
+                <div class="wiadomosc-zawartosc-glowna">Older notice</div>
+                <div class="wiadomosc-zawartosc-szczegoly">Meeting on 15.03.2025 in room 1</div>
+              </td>
+              <td>01.05.2026</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="wiadomosc-tr-content-header" style="display: none;">
+              <td colspan="3">
+                <div class="fltlft">Jan Kowalski</div>
+                <div class="fltrt">piątek 01.05.2026 09:15</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        """
+
+        let messages = try parseMessageList(html: html)
+        #expect(messages.count == 2)
+        #expect(messages[0].DateHasTime)
+        #expect(verbisMessageDateText(messages[0].Date!) == "30.06.2026 13:04")
+        #expect(messages[1].DateHasTime)
+        #expect(verbisMessageDateText(messages[1].Date!) == "01.05.2026 09:15")
+    }
+
+    @Test func messageListIgnoresPreviewDatesAndKeepsDateOnlyWithoutMidnight() throws {
+        let html = """
+        <table>
+          <tr class="wiadomosc-tr-header" data-vdo-dane-wiersza='{"typWiersza":"W","idWatku":99,"idSkrzynkiUczestnika":1,"idWszystkichWiadomosci":[1]}'>
+            <td>
+              <div class="wiadomosc-nadawca">No Header Sender</div>
+              <div class="wiadomosc-zawartosc-glowna">Subject</div>
+              <div class="wiadomosc-zawartosc-szczegoly">Body mentions 15.03.2025 only</div>
+            </td>
+            <td>15.03.2025</td>
+          </tr>
+        </table>
+        """
+        let messages = try parseMessageList(html: html)
+        #expect(messages.count == 1)
+        #expect(messages[0].Date != nil)
+        #expect(!messages[0].DateHasTime)
+        #expect(verbisMessageDateText(messages[0].Date!, includeTime: messages[0].DateHasTime) == "15.03.2025")
     }
 
     @Test func messageListDoesNotInventCurrentDateWhenMissing() throws {

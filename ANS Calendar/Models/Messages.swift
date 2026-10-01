@@ -32,6 +32,8 @@ struct Message: Codable, Identifiable, Equatable {
     let MessageData: MessageData
     /// Portal send time. Nil when the list HTML has no parseable date (never invent "now").
     var Date: Date?
+    /// False when only a calendar day was present (avoid showing a fake 00:00).
+    var DateHasTime: Bool = false
     
     static func == (lhs: Message, rhs: Message) -> Bool {
         return lhs.id == rhs.id
@@ -63,8 +65,8 @@ class MessagesModel: ObservableObject {
     private var MailboxID: Int = 0
     
     var Placeholder: [Message] = [
-        Message(Sender: "Joe Doe", Title: "Important notice", PreviewContent: "Lorem ipsum", Unread: false, MessageData: MessageData(typWiersza: "", idWatku: 0, idSkrzynkiUczestnika: 0, idWszystkichWiadomosci: [0]), Date: Date()),
-        Message(Sender: "Jan Kowalski", Title: "Another important notice", PreviewContent: "Lorem ipsum", Unread: false, MessageData: MessageData(typWiersza: "", idWatku: 0, idSkrzynkiUczestnika: 0, idWszystkichWiadomosci: [0]), Date: Date())
+        Message(Sender: "Joe Doe", Title: "Important notice", PreviewContent: "Lorem ipsum", Unread: false, MessageData: MessageData(typWiersza: "", idWatku: 0, idSkrzynkiUczestnika: 0, idWszystkichWiadomosci: [0]), Date: Date(), DateHasTime: true),
+        Message(Sender: "Jan Kowalski", Title: "Another important notice", PreviewContent: "Lorem ipsum", Unread: false, MessageData: MessageData(typWiersza: "", idWatku: 0, idSkrzynkiUczestnika: 0, idWszystkichWiadomosci: [0]), Date: Date(), DateHasTime: true)
     ]
     
     func getUnreadMessages(VerbisANSApi: VerbisAPI) async {
@@ -228,6 +230,12 @@ class MessagesModel: ObservableObject {
         }
     }
     
+    func updateMessageDate(threadId: Int, date: Date, includesTime: Bool) {
+        guard let index = Messages.firstIndex(where: { $0.MessageData.idWatku == threadId }) else { return }
+        Messages[index].Date = date
+        Messages[index].DateHasTime = includesTime
+    }
+
     func NotifyRead(VerbisAPI: VerbisAPI, MessageData: MessageData) async {
         do {
             let Params = "\"idSkrzynki\":\"\(MailboxID)\",\"rodzajDzialania\":\"WYSWIETLENIE\",\"wykonane\":true,\"idWiadomosci\":\(MessageData.idWszystkichWiadomosci)"
@@ -248,7 +256,7 @@ class MessagesModel: ObservableObject {
 func parseMessageList(html: String) throws -> [Message] {
     let doc: Document = try SwiftSoup.parse(html)
     let messageHeaders = try doc.select(".wiadomosc-tr-header").array()
-    let contentHeaders = try doc.select(".wiadomosc-tr-content-header").array()
+    let datesByHeaderIndex = try timedDatesByMessageHeaderIndex(in: doc, messageHeaders: messageHeaders)
     var messages: [Message] = []
 
     for (index, messageHeader) in messageHeaders.enumerated() {
@@ -263,8 +271,11 @@ func parseMessageList(html: String) throws -> [Message] {
               let messageData = try? JSONDecoder().decode(MessageData.self, from: rowData)
         else { continue }
 
-        let indexedHeader = index < contentHeaders.count ? contentHeaders[index] : nil
-        let sentAt = try messageListDate(for: messageHeader, indexedContentHeader: indexedHeader)
+        let sentAt = try messageListDate(
+            for: messageHeader,
+            timedContentHeaderDate: datesByHeaderIndex[index],
+            rowJSON: rowData
+        )
 
         messages.append(
             Message(
@@ -273,31 +284,150 @@ func parseMessageList(html: String) throws -> [Message] {
                 PreviewContent: preview,
                 Unread: unread,
                 MessageData: messageData,
-                Date: sentAt
+                Date: sentAt?.date,
+                DateHasTime: sentAt?.includesTime ?? false
             )
         )
     }
     return messages
 }
 
-/// Prefer the list row, then the following content-header sibling, then the parallel content-header index.
-func messageListDate(for messageHeader: Element, indexedContentHeader: Element?) throws -> Date? {
-    if let date = try verbisMessageDate(in: messageHeader) {
-        return date
+/// Prefer timed content-header dates, then a timed value from the list row, then date-only as a last resort.
+func messageListDate(
+    for messageHeader: Element,
+    timedContentHeaderDate: VerbisMessageDate?,
+    rowJSON: Data? = nil
+) throws -> VerbisMessageDate? {
+    if let timedContentHeaderDate {
+        return timedContentHeaderDate
     }
     if let siblingHeader = try nextMessageContentHeader(after: messageHeader),
-       let date = try verbisMessageDate(in: siblingHeader) {
-        return date
+       let timed = try verbisMessageDateValue(in: siblingHeader),
+       timed.includesTime {
+        return timed
     }
-    if let indexedContentHeader,
-       let date = try verbisMessageDate(in: indexedContentHeader) {
-        return date
+    if let rowJSON, let jsonDate = messageDate(fromRowJSON: rowJSON) {
+        return jsonDate
+    }
+    if let listRowDate = try listRowMessageDate(in: messageHeader) {
+        return listRowDate
     }
     return nil
 }
 
-private func nextMessageContentHeader(after messageHeader: Element) throws -> Element? {
-    var sibling = try messageHeader.nextElementSibling()
+/// Some Verbis row payloads include a send timestamp beside the ids we already decode.
+func messageDate(fromRowJSON data: Data) -> VerbisMessageDate? {
+    guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+
+    let preferredKeys = [
+        "dataWyslania", "dataNadania", "dataWiadomosci", "data",
+        "czasWyslania", "timestamp", "dataUtworzenia"
+    ]
+    for key in preferredKeys {
+        if let value = object[key], let parsed = messageDate(fromJSONValue: value) {
+            return parsed
+        }
+    }
+    for (key, value) in object {
+        let lower = key.lowercased()
+        guard lower.contains("data") || lower.contains("czas") || lower.contains("time") || lower.contains("date") else {
+            continue
+        }
+        if let parsed = messageDate(fromJSONValue: value) {
+            return parsed
+        }
+    }
+    return nil
+}
+
+private func messageDate(fromJSONValue value: Any) -> VerbisMessageDate? {
+    if let text = value as? String {
+        return parseVerbisMessageDateValue(text)
+    }
+    if let number = value as? NSNumber {
+        let millis = number.doubleValue
+        // Portal timestamps are usually epoch milliseconds.
+        let interval = millis > 10_000_000_000 ? millis / 1000 : millis
+        let date = Date(timeIntervalSince1970: interval)
+        return VerbisMessageDate(date: date, includesTime: true)
+    }
+    return nil
+}
+
+/// Pair each content-header timestamp with the nearest preceding list row, including across tbody wrappers.
+func timedDatesByMessageHeaderIndex(in document: Document, messageHeaders: [Element]) throws -> [Int: VerbisMessageDate] {
+    var dates: [Int: VerbisMessageDate] = [:]
+    for contentHeader in try document.select(".wiadomosc-tr-content-header").array() {
+        guard let timed = try verbisMessageDateValue(in: contentHeader), timed.includesTime else { continue }
+        guard let messageHeader = try nearestPrecedingMessageHeader(before: contentHeader) else { continue }
+        guard let index = messageHeaders.firstIndex(where: { $0 === messageHeader }) else { continue }
+        dates[index] = timed
+    }
+
+    // Fill gaps when DOM proximity misses a row but headers stay 1:1 in document order.
+    let contentHeaders = try document.select(".wiadomosc-tr-content-header").array()
+    for (index, contentHeader) in contentHeaders.enumerated() where index < messageHeaders.count {
+        guard dates[index] == nil else { continue }
+        if let timed = try verbisMessageDateValue(in: contentHeader), timed.includesTime {
+            dates[index] = timed
+        }
+    }
+    return dates
+}
+
+/// Only read date cells from the list row — never title/preview text that may contain other dates.
+func listRowMessageDate(in messageHeader: Element) throws -> VerbisMessageDate? {
+    for floated in try messageHeader.select(".fltrt").array() {
+        if let parsed = parseVerbisMessageDateValue(try floated.text()) {
+            return parsed
+        }
+    }
+
+    let cells = try messageHeader.select("td").array()
+    guard cells.count > 1, let lastCell = cells.last else { return nil }
+    // Skip the subject/preview cell; the date is usually in a trailing column.
+    let hasMessageBody = try !lastCell.select(
+        ".wiadomosc-nadawca, .wiadomosc-zawartosc-glowna, .wiadomosc-zawartosc-szczegoly"
+    ).isEmpty()
+    guard !hasMessageBody else { return nil }
+    return parseVerbisMessageDateValue(try lastCell.text())
+}
+
+func nextMessageContentHeader(after messageHeader: Element) throws -> Element? {
+    if let found = try firstContentHeader(inSiblingsStartingAt: try messageHeader.nextElementSibling()) {
+        return found
+    }
+
+    // Rows are often wrapped in separate <tbody> elements.
+    var ancestor = messageHeader.parent()
+    while let parent = ancestor {
+        if let found = try firstContentHeader(inSiblingsStartingAt: try parent.nextElementSibling()) {
+            return found
+        }
+        if parent.nodeName() == "table" { break }
+        ancestor = parent.parent()
+    }
+    return nil
+}
+
+func nearestPrecedingMessageHeader(before element: Element) throws -> Element? {
+    if let found = try lastMessageHeader(inPreviousSiblingsOf: element) {
+        return found
+    }
+
+    var ancestor = element.parent()
+    while let parent = ancestor {
+        if let found = try lastMessageHeader(inPreviousSiblingsOf: parent) {
+            return found
+        }
+        if parent.nodeName() == "table" { break }
+        ancestor = parent.parent()
+    }
+    return nil
+}
+
+private func firstContentHeader(inSiblingsStartingAt start: Element?) throws -> Element? {
+    var sibling = start
     while let current = sibling {
         if current.hasClass("wiadomosc-tr-header") {
             return nil
@@ -308,7 +438,24 @@ private func nextMessageContentHeader(after messageHeader: Element) throws -> El
         if let nested = try current.select(".wiadomosc-tr-content-header").array().first {
             return nested
         }
+        if try current.select(".wiadomosc-tr-header").array().first != nil {
+            return nil
+        }
         sibling = try current.nextElementSibling()
+    }
+    return nil
+}
+
+private func lastMessageHeader(inPreviousSiblingsOf element: Element) throws -> Element? {
+    var sibling = try element.previousElementSibling()
+    while let current = sibling {
+        if current.hasClass("wiadomosc-tr-header") {
+            return current
+        }
+        if let nested = try current.select(".wiadomosc-tr-header").array().last {
+            return nested
+        }
+        sibling = try current.previousElementSibling()
     }
     return nil
 }
