@@ -151,18 +151,96 @@ struct VerbisMessageDate: Equatable {
 }
 
 func normalizeVerbisMessageDateText(_ raw: String) -> String {
-    raw
+    var text = raw
+        .replacingOccurrences(of: "&nbsp;", with: " ")
+        .replacingOccurrences(of: "&#160;", with: " ")
+        .replacingOccurrences(of: "&#322;", with: "ł")
+        .replacingOccurrences(of: "&#x142;", with: "ł")
+        .replacingOccurrences(of: "&#x0142;", with: "ł")
+        .replacingOccurrences(of: "&lstrok;", with: "ł")
         .replacingOccurrences(of: "\u{00A0}", with: " ")
         .replacingOccurrences(of: "\u{202F}", with: " ")
         .replacingOccurrences(of: "\u{2007}", with: " ")
         .replacingOccurrences(of: "\u{2009}", with: " ")
         .replacingOccurrences(of: "\u{200A}", with: " ")
+        .replacingOccurrences(of: "\u{200B}", with: "") // zero-width space
+        .replacingOccurrences(of: "\u{FEFF}", with: "")
         .replacingOccurrences(of: "\u{FF1A}", with: ":") // fullwidth colon
         .replacingOccurrences(of: "\u{2236}", with: ":") // ratio colon
         .replacingOccurrences(of: ",", with: " ")
         .replacingOccurrences(of: "\n", with: " ")
         .replacingOccurrences(of: "\r", with: " ")
         .replacingOccurrences(of: "\t", with: " ")
+    while text.contains("  ") {
+        text = text.replacingOccurrences(of: "  ", with: " ")
+    }
+    return text
+}
+
+/// Decode portal HTML responses that may not be UTF-8.
+func decodePortalHTML(_ data: Data) -> String {
+    if let utf8 = String(data: data, encoding: .utf8), utf8.contains("wiadomosc") || utf8.contains("<") {
+        return utf8
+    }
+    if let latin1 = String(data: data, encoding: .isoLatin1) {
+        return latin1
+    }
+    return String(decoding: data, as: UTF8.self)
+}
+
+/// Pull sender/date pairs straight from markup so DOM pairing quirks cannot drop rows.
+func contentHeaderDatePairsFromHTML(_ html: String) -> [(sender: String, date: VerbisMessageDate)] {
+    var pairs: [(sender: String, date: VerbisMessageDate)] = []
+    let blockPattern = try? NSRegularExpression(
+        pattern: #"wiadomosc-tr-content-header[\s\S]*?</tr>"#,
+        options: [.caseInsensitive]
+    )
+    let fullRange = NSRange(html.startIndex..<html.endIndex, in: html)
+    let blocks = blockPattern?.matches(in: html, options: [], range: fullRange) ?? []
+    for block in blocks {
+        guard let chunkRange = Range(block.range, in: html) else { continue }
+        let chunk = String(html[chunkRange])
+        let sender = firstDivBody(in: chunk, className: "fltlft") ?? ""
+        let stamp = firstDivBody(in: chunk, className: "fltrt") ?? chunk
+        if let date = parseVerbisMessageDateValue(stamp) {
+            pairs.append((sender: normalizeMessageSenderText(sender), date: date))
+        }
+    }
+
+    // Fallback: any fltrt stamp, even outside a matched content-header block.
+    if pairs.isEmpty {
+        let fltrtPattern = try? NSRegularExpression(
+            pattern: #"class=["'][^"']*\bfltrt\b[^"']*["'][^>]*>([\s\S]*?)</div>"#,
+            options: [.caseInsensitive]
+        )
+        for match in fltrtPattern?.matches(in: html, options: [], range: fullRange) ?? [] {
+            guard let bodyRange = Range(match.range(at: 1), in: html) else { continue }
+            if let date = parseVerbisMessageDateValue(String(html[bodyRange])) {
+                pairs.append((sender: "", date: date))
+            }
+        }
+    }
+    return pairs
+}
+
+func normalizeMessageSenderText(_ raw: String) -> String {
+    normalizeVerbisMessageDateText(raw)
+        .split(whereSeparator: \.isWhitespace)
+        .joined(separator: " ")
+        .lowercased()
+}
+
+private func firstDivBody(in html: String, className: String) -> String? {
+    let pattern = try? NSRegularExpression(
+        pattern: "class=[\"'][^\"']*\\b\(NSRegularExpression.escapedPattern(for: className))\\b[^\"']*[\"'][^>]*>([\\s\\S]*?)</div>",
+        options: [.caseInsensitive]
+    )
+    guard let pattern else { return nil }
+    let range = NSRange(html.startIndex..<html.endIndex, in: html)
+    guard let match = pattern.firstMatch(in: html, options: [], range: range),
+          let bodyRange = Range(match.range(at: 1), in: html)
+    else { return nil }
+    return String(html[bodyRange])
 }
 
 func verbisMessageTextHasClockTime(_ raw: String) -> Bool {
@@ -237,22 +315,44 @@ func verbisMessageDate(in element: Element) throws -> Date? {
 }
 
 func verbisMessageDateValue(in element: Element) throws -> VerbisMessageDate? {
-    // Portal stamps live in `.fltrt` — read that before combining with the sender name.
-    for floated in try element.select(".fltrt").array() {
-        let text = try floated.text()
-        if let timed = parseVerbisMessageDateValue(text), timed.includesTime {
-            return timed
-        }
-        if let parsed = parseVerbisMessageDateValue(text) {
-            return parsed
+    var best: VerbisMessageDate?
+
+    func consider(_ raw: String) {
+        guard let parsed = parseVerbisMessageDateValue(raw) else { return }
+        if let current = best {
+            if parsed.includesTime && !current.includesTime {
+                best = parsed
+            }
+        } else {
+            best = parsed
         }
     }
 
-    let fullText = try element.text()
-    if let timed = parseVerbisMessageDateValue(fullText), timed.includesTime {
-        return timed
+    // Portal stamps live in `.fltrt` — read that before combining with the sender name.
+    for floated in try element.select(".fltrt").array() {
+        consider(try floated.text())
+        consider(floated.ownText())
+        for attr in ["title", "data-original-title", "aria-label"] {
+            consider(try floated.attr(attr))
+        }
     }
-    return parseVerbisMessageDateValue(fullText)
+
+    // Legacy portal markup used the second div in the content-header.
+    let divs = try element.select("div").array()
+    if divs.count > 1 {
+        consider(try divs[1].text())
+        consider(divs[1].ownText())
+    }
+
+    for attr in ["title", "data-original-title", "aria-label"] {
+        consider(try element.attr(attr))
+        for child in try element.select("[\(attr)]").array() {
+            consider(try child.attr(attr))
+        }
+    }
+
+    consider(try element.text())
+    return best
 }
 
 func verbisMessageDateText(_ date: Date, includeTime: Bool = true) -> String {

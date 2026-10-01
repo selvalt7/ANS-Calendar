@@ -56,7 +56,7 @@ struct MessageDetail: View {
             }
             .task {
                 await Thread = MessagesModel.FetchMessage(VerbisAnsAPI: VerbisAnsAPI, MessageData: Message.MessageData)
-                if let sentAt = Thread.compactMap(\.SentAt).first {
+                if let sentAt = Thread.compactMap(\.SentAt).last ?? Thread.compactMap(\.SentAt).first {
                     MessagesModel.updateMessageDate(
                         threadId: Message.MessageData.idWatku,
                         date: sentAt,

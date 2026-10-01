@@ -103,13 +103,26 @@ class MessagesModel: ObservableObject {
             
             let (data, _) = try await session.data(for: request)
             
-            let html: String = String(NSString(data: data, encoding: NSUTF8StringEncoding) ?? "")
+            let html = decodePortalHTML(data)
             
             for message in try parseMessageList(html: html) {
-                if !Messages.contains(where: {$0.MessageData.idWatku == message.MessageData.idWatku}) {
+                if let index = Messages.firstIndex(where: { $0.MessageData.idWatku == message.MessageData.idWatku }) {
+                    // Refresh dates for rows that were appended earlier without a stamp.
+                    if Messages[index].Date == nil, let date = message.Date {
+                        Messages[index].Date = date
+                        Messages[index].DateHasTime = message.DateHasTime
+                    } else if let date = message.Date,
+                              message.DateHasTime,
+                              !(Messages[index].DateHasTime) {
+                        Messages[index].Date = date
+                        Messages[index].DateHasTime = true
+                    }
+                } else {
                     Messages.append(message)
                 }
             }
+            // Ensure @Published emits after in-place date fixes.
+            Messages = Messages
             IsBusy = false
         } catch {
             IsBusy = false
@@ -157,12 +170,14 @@ class MessagesModel: ObservableObject {
             
             let (data, _) = try await session.data(for: request)
             
-            let html: String = String(NSString(data: data, encoding: NSUTF8StringEncoding) ?? "")
+            let html = decodePortalHTML(data)
             let doc: Document = try SwiftSoup.parse(html)
+            let rawHeaderDates = contentHeaderDatePairsFromHTML(html)
             
             let MessagesRowContent: Elements = try doc.select(".wiadomosc-tr-content")
             
             var MessageThread: [MessageContent] = []
+            var rawDateIndex = 0
             
             for MessageData in MessagesRowContent.array() {
                 var MessageContentData = MessageContent()
@@ -174,7 +189,13 @@ class MessagesModel: ObservableObject {
                 let senderElement = try header.select(".fltlft").array().first ?? headerDivs.first
                 guard let senderElement, let sender = try? senderElement.text(), !sender.isEmpty else { continue }
                 MessageContentData.Sender = sender
-                MessageContentData.SentAt = try verbisMessageDate(in: header)
+                if let parsed = try verbisMessageDateValue(in: header) {
+                    MessageContentData.SentAt = parsed.date
+                } else if rawDateIndex < rawHeaderDates.count {
+                    // Fall back to stamps extracted from the raw markup order.
+                    MessageContentData.SentAt = rawHeaderDates[rawDateIndex].date
+                }
+                rawDateIndex += 1
                 
                 guard let MessageTextContent = try MessageData.select(".wiadomosc-content").array().first else { continue }
                 
@@ -233,6 +254,7 @@ class MessagesModel: ObservableObject {
         guard let index = Messages.firstIndex(where: { $0.MessageData.idWatku == threadId }) else { return }
         Messages[index].Date = date
         Messages[index].DateHasTime = includesTime
+        Messages = Messages
     }
 
     func NotifyRead(VerbisAPI: VerbisAPI, MessageData: MessageData) async {
@@ -359,61 +381,66 @@ private func messageDate(fromJSONValue value: Any) -> VerbisMessageDate? {
     return nil
 }
 
-private func normalizeMessageSender(_ raw: String) -> String {
-    normalizeVerbisMessageDateText(raw)
-        .split(whereSeparator: \.isWhitespace)
-        .joined(separator: " ")
-        .lowercased()
-}
-
-/// Resolve each list row's date from its own following content-header, then sender match.
-/// Global index pairing is only a last resort — it assigns the wrong stamp when headers drift.
+/// Resolve each list row's date without relying on element identity.
+/// Uses interleaved document order, raw HTML fltrt pairs, neighbors, sender, then index.
 func contentHeaderDatesForMessageHeaders(_ messageHeaders: [Element], in document: Document) throws -> [Int: VerbisMessageDate] {
     var dates: [Int: VerbisMessageDate] = [:]
 
-    struct HeaderDate {
-        let sender: String
-        let date: VerbisMessageDate
-        let element: Element
+    // 1) Interleaved document order: each content-header belongs to the previous list row.
+    var messageIndex = -1
+    for row in try document.select(".wiadomosc-tr-header, .wiadomosc-tr-content-header").array() {
+        if row.hasClass("wiadomosc-tr-header") {
+            messageIndex += 1
+            continue
+        }
+        guard row.hasClass("wiadomosc-tr-content-header"),
+              messageIndex >= 0,
+              messageIndex < messageHeaders.count
+        else { continue }
+        if let parsed = try verbisMessageDateValue(in: row) {
+            dates[messageIndex] = betterMessageDate(dates[messageIndex], parsed)
+        }
     }
 
-    let contentHeaders = try document.select(".wiadomosc-tr-content-header").array()
-    var available: [HeaderDate] = []
-    for header in contentHeaders {
-        guard let date = try verbisMessageDateValue(in: header) else { continue }
-        let sender = normalizeMessageSender(try header.select(".fltlft").array().first?.text() ?? "")
-        available.append(HeaderDate(sender: sender, date: date, element: header))
+    // 2) Raw HTML pairs (survives odd DOM nesting / entity encoding).
+    let html = try document.outerHtml()
+    var rawPairs = contentHeaderDatePairsFromHTML(html)
+    if rawPairs.isEmpty, let body = try? document.body()?.html() {
+        rawPairs = contentHeaderDatePairsFromHTML(body)
     }
-    var used = Set<ObjectIdentifier>()
-
-    // 1) Neighboring content-header after each list row (including across tbody wrappers).
+    var usedRaw = Set<Int>()
     for (index, messageHeader) in messageHeaders.enumerated() {
+        if let existing = dates[index], existing.includesTime { continue }
+        let sender = normalizeMessageSenderText(try messageHeader.select(".wiadomosc-nadawca").array().first?.text() ?? "")
+        if !sender.isEmpty,
+           let rawIndex = rawPairs.indices.first(where: { !usedRaw.contains($0) && rawPairs[$0].sender == sender }) {
+            dates[index] = betterMessageDate(dates[index], rawPairs[rawIndex].date)
+            usedRaw.insert(rawIndex)
+            continue
+        }
+        if dates[index] == nil,
+           let rawIndex = rawPairs.indices.first(where: { !usedRaw.contains($0) }) {
+            // Preserve remaining markup order when sender labels differ slightly.
+            dates[index] = rawPairs[rawIndex].date
+            usedRaw.insert(rawIndex)
+        }
+    }
+
+    // 3) Neighboring content-header after each list row.
+    for (index, messageHeader) in messageHeaders.enumerated() {
+        if let existing = dates[index], existing.includesTime { continue }
         guard let sibling = try nextMessageContentHeader(after: messageHeader),
               let date = try verbisMessageDateValue(in: sibling)
         else { continue }
-        dates[index] = date
-        used.insert(ObjectIdentifier(sibling))
+        dates[index] = betterMessageDate(dates[index], date)
     }
 
-    // 2) Match remaining rows by sender (fltlft ↔ nadawca), preserving order for repeats.
-    for (index, messageHeader) in messageHeaders.enumerated() {
-        if let existing = dates[index], existing.includesTime { continue }
-        let sender = normalizeMessageSender(try messageHeader.select(".wiadomosc-nadawca").array().first?.text() ?? "")
-        guard !sender.isEmpty else { continue }
-        guard let match = available.first(where: {
-            !used.contains(ObjectIdentifier($0.element)) && !$0.sender.isEmpty && $0.sender == sender
-        }) else { continue }
-        dates[index] = betterMessageDate(dates[index], match.date)
-        used.insert(ObjectIdentifier(match.element))
-    }
-
-    // 3) Last resort: document-order index for any still-unmatched rows.
+    // 4) Classic parallel index for any remaining gaps.
+    let contentHeaders = try document.select(".wiadomosc-tr-content-header").array()
     for (index, contentHeader) in contentHeaders.enumerated() where index < messageHeaders.count {
         if let existing = dates[index], existing.includesTime { continue }
-        guard !used.contains(ObjectIdentifier(contentHeader)) else { continue }
         if let parsed = try verbisMessageDateValue(in: contentHeader) {
             dates[index] = betterMessageDate(dates[index], parsed)
-            used.insert(ObjectIdentifier(contentHeader))
         }
     }
 
