@@ -189,8 +189,8 @@ func decodePortalHTML(_ data: Data) -> String {
 }
 
 /// Pull sender/date pairs straight from markup so DOM pairing quirks cannot drop rows.
-func contentHeaderDatePairsFromHTML(_ html: String) -> [(sender: String, date: VerbisMessageDate)] {
-    var pairs: [(sender: String, date: VerbisMessageDate)] = []
+func contentHeaderDatePairsFromHTML(_ html: String) -> [(sender: String, stamp: VerbisMessageDate)] {
+    var pairs: [(sender: String, stamp: VerbisMessageDate)] = []
     let blockPattern = try? NSRegularExpression(
         pattern: #"wiadomosc-tr-content-header[\s\S]*?</tr>"#,
         options: [.caseInsensitive]
@@ -201,9 +201,9 @@ func contentHeaderDatePairsFromHTML(_ html: String) -> [(sender: String, date: V
         guard let chunkRange = Range(block.range, in: html) else { continue }
         let chunk = String(html[chunkRange])
         let sender = firstDivBody(in: chunk, className: "fltlft") ?? ""
-        let stamp = firstDivBody(in: chunk, className: "fltrt") ?? chunk
-        if let date = parseVerbisMessageDateValue(stamp) {
-            pairs.append((sender: normalizeMessageSenderText(sender), date: date))
+        let stampText = firstDivBody(in: chunk, className: "fltrt") ?? chunk
+        if let stamp = parseVerbisMessageDateValue(stampText) {
+            pairs.append((sender: normalizeMessageSenderText(sender), stamp: stamp))
         }
     }
 
@@ -215,8 +215,8 @@ func contentHeaderDatePairsFromHTML(_ html: String) -> [(sender: String, date: V
         )
         for match in fltrtPattern?.matches(in: html, options: [], range: fullRange) ?? [] {
             guard let bodyRange = Range(match.range(at: 1), in: html) else { continue }
-            if let date = parseVerbisMessageDateValue(String(html[bodyRange])) {
-                pairs.append((sender: "", date: date))
+            if let stamp = parseVerbisMessageDateValue(String(html[bodyRange])) {
+                pairs.append((sender: "", stamp: stamp))
             }
         }
     }

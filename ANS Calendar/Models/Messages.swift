@@ -193,7 +193,7 @@ class MessagesModel: ObservableObject {
                     MessageContentData.SentAt = parsed.date
                 } else if rawDateIndex < rawHeaderDates.count {
                     // Fall back to stamps extracted from the raw markup order.
-                    MessageContentData.SentAt = rawHeaderDates[rawDateIndex].date
+                    MessageContentData.SentAt = rawHeaderDates[rawDateIndex].stamp.date
                 }
                 rawDateIndex += 1
                 

@@ -319,8 +319,8 @@ struct ANS_CalendarTests {
 
         let pairs = contentHeaderDatePairsFromHTML(html)
         #expect(pairs.count == 2)
-        #expect(verbisMessageDateText(pairs[0].date.date) == "30.06.2026 13:02")
-        #expect(verbisMessageDateText(pairs[1].date.date) == "29.06.2026 20:04")
+        #expect(verbisMessageDateText(pairs[0].stamp.date) == "30.06.2026 13:02")
+        #expect(verbisMessageDateText(pairs[1].stamp.date) == "29.06.2026 20:04")
 
         let messages = try parseMessageList(html: html)
         #expect(messages.count == 2)
