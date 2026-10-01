@@ -20,8 +20,10 @@ struct MessageRow: View {
                     Text(Message.Sender)
                         .font(.headline)
                     Spacer()
-                    Text(verbisMessageDateText(Message.Date))
-                        .font(.caption)
+                    if let sentAt = Message.Date {
+                        Text(verbisMessageDateText(sentAt))
+                            .font(.caption)
+                    }
                 }
                 Text(Message.Title)
                     .font(.subheadline)

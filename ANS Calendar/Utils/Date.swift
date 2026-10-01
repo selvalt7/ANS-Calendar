@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftSoup
 
 extension Calendar {
     /// University schedule calendar. Weeks start on Monday and class times stay in Poland
@@ -145,21 +146,50 @@ extension Date {
 }
 
 /// Portal messages look like "wtorek 30.06.2026 13:04". The weekday is Polish and is ignored.
+/// Also accepts date-only values and separators such as commas or newlines.
 func parseVerbisMessageDate(_ raw: String) -> Date? {
     let text = raw
         .replacingOccurrences(of: "\u{00A0}", with: " ")
         .replacingOccurrences(of: "\u{202F}", with: " ")
-    guard let match = text.firstMatch(of: /(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})/),
-          let day = Int(match.1),
-          let month = Int(match.2),
-          let year = Int(match.3),
-          let hour = Int(match.4),
-          let minute = Int(match.5),
-          (1...31).contains(day),
-          (1...12).contains(month),
-          (0...23).contains(hour),
-          (0...59).contains(minute)
-    else { return nil }
+        .replacingOccurrences(of: ",", with: " ")
+        .replacingOccurrences(of: "\n", with: " ")
+        .replacingOccurrences(of: "\r", with: " ")
+
+    let day: Int
+    let month: Int
+    let year: Int
+    let hour: Int
+    let minute: Int
+
+    if let match = text.firstMatch(of: /(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})/),
+       let parsedDay = Int(match.1),
+       let parsedMonth = Int(match.2),
+       let parsedYear = Int(match.3),
+       let parsedHour = Int(match.4),
+       let parsedMinute = Int(match.5),
+       (1...31).contains(parsedDay),
+       (1...12).contains(parsedMonth),
+       (0...23).contains(parsedHour),
+       (0...59).contains(parsedMinute) {
+        day = parsedDay
+        month = parsedMonth
+        year = parsedYear
+        hour = parsedHour
+        minute = parsedMinute
+    } else if let match = text.firstMatch(of: /(\d{1,2})\.(\d{1,2})\.(\d{4})/),
+              let parsedDay = Int(match.1),
+              let parsedMonth = Int(match.2),
+              let parsedYear = Int(match.3),
+              (1...31).contains(parsedDay),
+              (1...12).contains(parsedMonth) {
+        day = parsedDay
+        month = parsedMonth
+        year = parsedYear
+        hour = 0
+        minute = 0
+    } else {
+        return nil
+    }
 
     var components = DateComponents()
     components.calendar = .ans
@@ -170,6 +200,21 @@ func parseVerbisMessageDate(_ raw: String) -> Date? {
     components.hour = hour
     components.minute = minute
     return Calendar.ans.date(from: components)
+}
+
+/// Date sits in `<div class="fltrt">wtorek 30.06.2026 13:04</div>` or any nearby cell/text.
+func verbisMessageDate(in element: Element) throws -> Date? {
+    let floated = try element.select(".fltrt").array()
+    let candidates = floated.isEmpty ? try element.select("div, td, span").array() : floated
+    for candidate in candidates {
+        if let date = parseVerbisMessageDate(try candidate.text()) {
+            return date
+        }
+        if let date = parseVerbisMessageDate(candidate.ownText()) {
+            return date
+        }
+    }
+    return parseVerbisMessageDate(try element.text())
 }
 
 func verbisMessageDateText(_ date: Date) -> String {

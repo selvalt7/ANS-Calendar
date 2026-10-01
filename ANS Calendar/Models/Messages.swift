@@ -30,7 +30,8 @@ struct Message: Codable, Identifiable, Equatable {
     let PreviewContent: String
     var Unread: Bool
     let MessageData: MessageData
-    var Date: Date
+    /// Portal send time. Nil when the list HTML has no parseable date (never invent "now").
+    var Date: Date?
     
     static func == (lhs: Message, rhs: Message) -> Bool {
         return lhs.id == rhs.id
@@ -101,38 +102,15 @@ class MessagesModel: ObservableObject {
             let (data, _) = try await session.data(for: request)
             
             let html: String = String(NSString(data: data, encoding: NSUTF8StringEncoding) ?? "")
-            let doc: Document = try SwiftSoup.parse(html)
             
-            let messageHeaders: Elements = try doc.select(".wiadomosc-tr-header")
-            let MessagesContentHeader: Elements = try doc.select(".wiadomosc-tr-content-header")
-            
-            let contentHeaders = MessagesContentHeader.array()
-            for (index, messageHeader) in messageHeaders.enumerated() {
-                guard let Sender = try messageHeader.select(".wiadomosc-nadawca").array().first?.text(),
-                      let Title = try messageHeader.select(".wiadomosc-zawartosc-glowna").array().first?.text(),
-                      let Content = try messageHeader.select(".wiadomosc-zawartosc-szczegoly").array().first?.text()
-                else { continue }
-                let Unread = messageHeader.hasClass("wiadomosci-nowe")
-                
-                var MessageDate = Date()
-                if index < contentHeaders.count, let parsedDate = try messageDate(in: contentHeaders[index]) {
-                    MessageDate = parsedDate
-                }
-                
-                let rawRow = try messageHeader.attr("data-vdo-dane-wiersza")
-                guard let RowData = rawRow.data(using: .utf8),
-                      let MessageData = try? JSONDecoder().decode(MessageData.self, from: RowData)
-                else { continue }
-                
-                let Message = Message(Sender: Sender, Title: Title, PreviewContent: Content, Unread: Unread, MessageData: MessageData, Date: MessageDate)
-                
-                if !Messages.contains(where: {$0.MessageData.idWatku == Message.MessageData.idWatku}) {
-                    Messages.append(Message)
+            for message in try parseMessageList(html: html) {
+                if !Messages.contains(where: {$0.MessageData.idWatku == message.MessageData.idWatku}) {
+                    Messages.append(message)
                 }
             }
             IsBusy = false
         } catch {
-            
+            IsBusy = false
         }
     }
     
@@ -195,7 +173,7 @@ class MessagesModel: ObservableObject {
                 let senderElement = try header.select(".fltlft").array().first ?? headerDivs.first
                 guard let senderElement, let sender = try? senderElement.text(), !sender.isEmpty else { continue }
                 MessageContentData.Sender = sender
-                MessageContentData.SentAt = try messageDate(in: header)
+                MessageContentData.SentAt = try verbisMessageDate(in: header)
                 
                 guard let MessageTextContent = try MessageData.select(".wiadomosc-content").array().first else { continue }
                 
@@ -264,15 +242,73 @@ class MessagesModel: ObservableObject {
         }
     }
 
-    /// Date sits in `<div class="fltrt">wtorek 30.06.2026 13:04</div>` inside the content header.
-    private func messageDate(in header: Element) throws -> Date? {
-        let floated = try header.select(".fltrt").array()
-        let candidates = floated.isEmpty ? try header.select("div").array() : floated
-        for element in candidates {
-            if let date = parseVerbisMessageDate(try element.text()) {
-                return date
-            }
-        }
-        return parseVerbisMessageDate(try header.text())
+}
+
+/// Parse the inbox table into messages with portal send dates.
+func parseMessageList(html: String) throws -> [Message] {
+    let doc: Document = try SwiftSoup.parse(html)
+    let messageHeaders = try doc.select(".wiadomosc-tr-header").array()
+    let contentHeaders = try doc.select(".wiadomosc-tr-content-header").array()
+    var messages: [Message] = []
+
+    for (index, messageHeader) in messageHeaders.enumerated() {
+        guard let sender = try messageHeader.select(".wiadomosc-nadawca").array().first?.text(),
+              let title = try messageHeader.select(".wiadomosc-zawartosc-glowna").array().first?.text(),
+              let preview = try messageHeader.select(".wiadomosc-zawartosc-szczegoly").array().first?.text()
+        else { continue }
+        let unread = messageHeader.hasClass("wiadomosci-nowe")
+
+        let rawRow = try messageHeader.attr("data-vdo-dane-wiersza")
+        guard let rowData = rawRow.data(using: .utf8),
+              let messageData = try? JSONDecoder().decode(MessageData.self, from: rowData)
+        else { continue }
+
+        let indexedHeader = index < contentHeaders.count ? contentHeaders[index] : nil
+        let sentAt = try messageListDate(for: messageHeader, indexedContentHeader: indexedHeader)
+
+        messages.append(
+            Message(
+                Sender: sender,
+                Title: title,
+                PreviewContent: preview,
+                Unread: unread,
+                MessageData: messageData,
+                Date: sentAt
+            )
+        )
     }
+    return messages
+}
+
+/// Prefer the list row, then the following content-header sibling, then the parallel content-header index.
+func messageListDate(for messageHeader: Element, indexedContentHeader: Element?) throws -> Date? {
+    if let date = try verbisMessageDate(in: messageHeader) {
+        return date
+    }
+    if let siblingHeader = try nextMessageContentHeader(after: messageHeader),
+       let date = try verbisMessageDate(in: siblingHeader) {
+        return date
+    }
+    if let indexedContentHeader,
+       let date = try verbisMessageDate(in: indexedContentHeader) {
+        return date
+    }
+    return nil
+}
+
+private func nextMessageContentHeader(after messageHeader: Element) throws -> Element? {
+    var sibling = try messageHeader.nextElementSibling()
+    while let current = sibling {
+        if current.hasClass("wiadomosc-tr-header") {
+            return nil
+        }
+        if current.hasClass("wiadomosc-tr-content-header") {
+            return current
+        }
+        if let nested = try current.select(".wiadomosc-tr-content-header").array().first {
+            return nested
+        }
+        sibling = try current.nextElementSibling()
+    }
+    return nil
 }
