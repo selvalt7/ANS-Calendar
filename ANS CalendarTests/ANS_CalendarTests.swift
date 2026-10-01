@@ -267,11 +267,64 @@ struct ANS_CalendarTests {
         #expect(parseVerbisMessageDate("30.06.2026, 13:04") == parsed?.date)
         #expect(parseVerbisMessageDate("30.06.2026 13:04:59") == parsed?.date)
 
+        // Diacritic weekday from the portal — previously missing for some rows.
+        let monday = parseVerbisMessageDateValue("poniedziałek 29.06.2026 20:04")
+        #expect(monday?.includesTime == true)
+        #expect(verbisMessageDateText(monday!.date) == "29.06.2026 20:04")
+        #expect(
+            parseVerbisMessageDateValue("dr hab. Joanna Wyrobek poniedziałek 29.06.2026 20:04")?.date
+                == monday?.date
+        )
+
         let dateOnly = parseVerbisMessageDateValue("30.06.2026")
         #expect(dateOnly != nil)
         #expect(dateOnly?.includesTime == false)
         #expect(calendar.component(.day, from: dateOnly!.date) == 30)
         #expect(verbisMessageDateText(dateOnly!.date, includeTime: false) == "30.06.2026")
+    }
+
+    @Test func messageListPairsPortalContentHeadersByNeighborAndSender() throws {
+        let html = """
+        <table>
+          <tr class="wiadomosc-tr-header" data-vdo-dane-wiersza='{"typWiersza":"W","idWatku":11,"idSkrzynkiUczestnika":21,"idWszystkichWiadomosci":[31]}'>
+            <td>
+              <div class="wiadomosc-nadawca">mgr Katarzyna Wysocka</div>
+              <div class="wiadomosc-zawartosc-glowna">Notice A</div>
+              <div class="wiadomosc-zawartosc-szczegoly">Preview A</div>
+            </td>
+          </tr>
+          <tr class="wiadomosc-tr-content-header" style="display: none;">
+            <td colspan="3">
+              <div class="fltlft" style="font-weight: bold;">            mgr Katarzyna Wysocka
+        </div>
+              <div class="fltrt" style="font-weight: bold;">wtorek 30.06.2026 13:02</div>
+            </td>
+          </tr>
+          <tr class="wiadomosc-tr-header" data-vdo-dane-wiersza='{"typWiersza":"W","idWatku":12,"idSkrzynkiUczestnika":22,"idWszystkichWiadomosci":[32]}'>
+            <td>
+              <div class="wiadomosc-nadawca">dr hab. Joanna Wyrobek</div>
+              <div class="wiadomosc-zawartosc-glowna">Notice B</div>
+              <div class="wiadomosc-zawartosc-szczegoly">Preview B</div>
+            </td>
+          </tr>
+          <tr class="wiadomosc-tr-content-header" style="display: none;">
+            <td colspan="3">
+              <div class="fltlft" style="font-weight: bold;">            dr hab. Joanna Wyrobek
+        </div>
+              <div class="fltrt" style="font-weight: bold;">poniedziałek 29.06.2026 20:04</div>
+            </td>
+          </tr>
+        </table>
+        """
+
+        let messages = try parseMessageList(html: html)
+        #expect(messages.count == 2)
+        #expect(messages[0].Sender == "mgr Katarzyna Wysocka")
+        #expect(messages[0].DateHasTime)
+        #expect(verbisMessageDateText(messages[0].Date!) == "30.06.2026 13:02")
+        #expect(messages[1].Sender == "dr hab. Joanna Wyrobek")
+        #expect(messages[1].DateHasTime)
+        #expect(verbisMessageDateText(messages[1].Date!) == "29.06.2026 20:04")
     }
 
     @Test func messageListReadsDatesFromHiddenContentHeaders() throws {

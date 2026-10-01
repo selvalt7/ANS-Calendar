@@ -177,52 +177,41 @@ func parseVerbisMessageDate(_ raw: String) -> Date? {
 
 func parseVerbisMessageDateValue(_ raw: String) -> VerbisMessageDate? {
     let text = normalizeVerbisMessageDateText(raw)
+    // Skip weekday/sender prefixes (including Polish diacritics like "poniedziałek") by
+    // starting at the first dd.MM.yyyy / dd.MM.yyyy HH:mm match.
+    guard let match = text.firstMatch(
+        of: /(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::\d{2})?)?/
+    ),
+          let parsedDay = Int(match.1),
+          let parsedMonth = Int(match.2),
+          let parsedYear = Int(match.3),
+          (1...31).contains(parsedDay),
+          (1...12).contains(parsedMonth)
+    else { return nil }
 
-    let day: Int
-    let month: Int
-    let year: Int
+    let includesTime: Bool
     let hour: Int
     let minute: Int
-    let includesTime: Bool
-
-    if let match = text.firstMatch(of: /(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})(?::\d{2})?/),
-       let parsedDay = Int(match.1),
-       let parsedMonth = Int(match.2),
-       let parsedYear = Int(match.3),
-       let parsedHour = Int(match.4),
-       let parsedMinute = Int(match.5),
-       (1...31).contains(parsedDay),
-       (1...12).contains(parsedMonth),
+    if let hourText = match.4, let minuteText = match.5,
+       let parsedHour = Int(hourText),
+       let parsedMinute = Int(minuteText),
        (0...23).contains(parsedHour),
        (0...59).contains(parsedMinute) {
-        day = parsedDay
-        month = parsedMonth
-        year = parsedYear
+        includesTime = true
         hour = parsedHour
         minute = parsedMinute
-        includesTime = true
-    } else if let match = text.firstMatch(of: /(\d{1,2})\.(\d{1,2})\.(\d{4})/),
-              let parsedDay = Int(match.1),
-              let parsedMonth = Int(match.2),
-              let parsedYear = Int(match.3),
-              (1...31).contains(parsedDay),
-              (1...12).contains(parsedMonth) {
-        day = parsedDay
-        month = parsedMonth
-        year = parsedYear
+    } else {
+        includesTime = false
         hour = 0
         minute = 0
-        includesTime = false
-    } else {
-        return nil
     }
 
     var components = DateComponents()
     components.calendar = .ans
     components.timeZone = Calendar.ans.timeZone
-    components.year = year
-    components.month = month
-    components.day = day
+    components.year = parsedYear
+    components.month = parsedMonth
+    components.day = parsedDay
     components.hour = hour
     components.minute = minute
     guard let date = Calendar.ans.date(from: components) else { return nil }
@@ -236,22 +225,21 @@ func verbisMessageDate(in element: Element) throws -> Date? {
 }
 
 func verbisMessageDateValue(in element: Element) throws -> VerbisMessageDate? {
-    let fullText = try element.text()
-    if let timed = parseVerbisMessageDateValue(fullText), timed.includesTime {
-        return timed
-    }
-
+    // Portal stamps live in `.fltrt` — read that before combining with the sender name.
     for floated in try element.select(".fltrt").array() {
         let text = try floated.text()
         if let timed = parseVerbisMessageDateValue(text), timed.includesTime {
             return timed
         }
+        if let parsed = parseVerbisMessageDateValue(text) {
+            return parsed
+        }
     }
 
+    let fullText = try element.text()
     if let timed = parseVerbisMessageDateValue(fullText), timed.includesTime {
         return timed
     }
-
     return parseVerbisMessageDateValue(fullText)
 }
 

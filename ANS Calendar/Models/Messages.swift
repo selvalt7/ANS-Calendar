@@ -161,16 +161,15 @@ class MessagesModel: ObservableObject {
             let doc: Document = try SwiftSoup.parse(html)
             
             let MessagesRowContent: Elements = try doc.select(".wiadomosc-tr-content")
-            let MessagesHeader: Elements = try doc.select(".wiadomosc-tr-content-header")
             
             var MessageThread: [MessageContent] = []
             
-            let messageHeaders = MessagesHeader.array()
-            for (index, MessageData) in MessagesRowContent.enumerated() {
+            for MessageData in MessagesRowContent.array() {
                 var MessageContentData = MessageContent()
                 
-                guard index < messageHeaders.count else { continue }
-                let header = messageHeaders[index]
+                // Pair each body row with its neighboring content-header — never a global index into
+                // every list header on the page (that assigned one message's date to another).
+                guard let header = try contentHeader(forContentRow: MessageData) else { continue }
                 let headerDivs = try header.select("div").array()
                 let senderElement = try header.select(".fltlft").array().first ?? headerDivs.first
                 guard let senderElement, let sender = try? senderElement.text(), !sender.isEmpty else { continue }
@@ -256,7 +255,7 @@ class MessagesModel: ObservableObject {
 func parseMessageList(html: String) throws -> [Message] {
     let doc: Document = try SwiftSoup.parse(html)
     let messageHeaders = try doc.select(".wiadomosc-tr-header").array()
-    let datesByHeaderIndex = try contentHeaderDatesByMessageIndex(in: doc, messageHeaders: messageHeaders)
+    let contentHeaderDates = try contentHeaderDatesForMessageHeaders(messageHeaders, in: doc)
     var messages: [Message] = []
 
     for (index, messageHeader) in messageHeaders.enumerated() {
@@ -273,7 +272,7 @@ func parseMessageList(html: String) throws -> [Message] {
 
         let sentAt = try messageListDate(
             for: messageHeader,
-            contentHeaderDate: datesByHeaderIndex[index],
+            contentHeaderDate: contentHeaderDates[index],
             rowJSON: rowData
         )
 
@@ -292,18 +291,13 @@ func parseMessageList(html: String) throws -> [Message] {
     return messages
 }
 
-/// Prefer content-header dates (timed when available), then list-row / JSON fallbacks.
+/// Prefer each row's own content-header date (timed when available), then list-row / JSON fallbacks.
 func messageListDate(
     for messageHeader: Element,
     contentHeaderDate: VerbisMessageDate?,
     rowJSON: Data? = nil
 ) throws -> VerbisMessageDate? {
     var best = contentHeaderDate
-
-    if let siblingHeader = try nextMessageContentHeader(after: messageHeader),
-       let siblingDate = try verbisMessageDateValue(in: siblingHeader) {
-        best = betterMessageDate(best, siblingDate)
-    }
 
     if let rowJSON, let jsonDate = messageDate(fromRowJSON: rowJSON) {
         best = betterMessageDate(best, jsonDate)
@@ -365,27 +359,121 @@ private func messageDate(fromJSONValue value: Any) -> VerbisMessageDate? {
     return nil
 }
 
-/// Pair content-header dates with list rows. Accept date-only; prefer timed values.
-func contentHeaderDatesByMessageIndex(in document: Document, messageHeaders: [Element]) throws -> [Int: VerbisMessageDate] {
-    var dates: [Int: VerbisMessageDate] = [:]
-    let contentHeaders = try document.select(".wiadomosc-tr-content-header").array()
+private func normalizeMessageSender(_ raw: String) -> String {
+    normalizeVerbisMessageDateText(raw)
+        .split(whereSeparator: \.isWhitespace)
+        .joined(separator: " ")
+        .lowercased()
+}
 
-    // Primary: document-order index pairing (stable when every row has a content header).
+/// Resolve each list row's date from its own following content-header, then sender match.
+/// Global index pairing is only a last resort — it assigns the wrong stamp when headers drift.
+func contentHeaderDatesForMessageHeaders(_ messageHeaders: [Element], in document: Document) throws -> [Int: VerbisMessageDate] {
+    var dates: [Int: VerbisMessageDate] = [:]
+
+    struct HeaderDate {
+        let sender: String
+        let date: VerbisMessageDate
+        let element: Element
+    }
+
+    let contentHeaders = try document.select(".wiadomosc-tr-content-header").array()
+    var available: [HeaderDate] = []
+    for header in contentHeaders {
+        guard let date = try verbisMessageDateValue(in: header) else { continue }
+        let sender = normalizeMessageSender(try header.select(".fltlft").array().first?.text() ?? "")
+        available.append(HeaderDate(sender: sender, date: date, element: header))
+    }
+    var used = Set<ObjectIdentifier>()
+
+    // 1) Neighboring content-header after each list row (including across tbody wrappers).
+    for (index, messageHeader) in messageHeaders.enumerated() {
+        guard let sibling = try nextMessageContentHeader(after: messageHeader),
+              let date = try verbisMessageDateValue(in: sibling)
+        else { continue }
+        dates[index] = date
+        used.insert(ObjectIdentifier(sibling))
+    }
+
+    // 2) Match remaining rows by sender (fltlft ↔ nadawca), preserving order for repeats.
+    for (index, messageHeader) in messageHeaders.enumerated() {
+        if let existing = dates[index], existing.includesTime { continue }
+        let sender = normalizeMessageSender(try messageHeader.select(".wiadomosc-nadawca").array().first?.text() ?? "")
+        guard !sender.isEmpty else { continue }
+        guard let match = available.first(where: {
+            !used.contains(ObjectIdentifier($0.element)) && !$0.sender.isEmpty && $0.sender == sender
+        }) else { continue }
+        dates[index] = betterMessageDate(dates[index], match.date)
+        used.insert(ObjectIdentifier(match.element))
+    }
+
+    // 3) Last resort: document-order index for any still-unmatched rows.
     for (index, contentHeader) in contentHeaders.enumerated() where index < messageHeaders.count {
+        if let existing = dates[index], existing.includesTime { continue }
+        guard !used.contains(ObjectIdentifier(contentHeader)) else { continue }
         if let parsed = try verbisMessageDateValue(in: contentHeader) {
             dates[index] = betterMessageDate(dates[index], parsed)
+            used.insert(ObjectIdentifier(contentHeader))
         }
     }
 
-    // Secondary: DOM proximity, including separate <tbody> wrappers.
-    for contentHeader in contentHeaders {
-        guard let parsed = try verbisMessageDateValue(in: contentHeader) else { continue }
-        guard let messageHeader = try nearestPrecedingMessageHeader(before: contentHeader) else { continue }
-        guard let index = messageHeaders.firstIndex(where: { $0 === messageHeader }) else { continue }
-        dates[index] = betterMessageDate(dates[index], parsed)
+    return dates
+}
+
+/// Content body rows are preceded by their content-header; list headers on the same page must not be used by index.
+func contentHeader(forContentRow contentRow: Element) throws -> Element? {
+    if let header = try nearestPrecedingContentHeader(before: contentRow) {
+        return header
+    }
+    // Some markup nests the header inside a wrapper before the body.
+    if let parent = contentRow.parent() {
+        if let header = try nearestPrecedingContentHeader(before: parent) {
+            return header
+        }
+        if let nested = try parent.select(".wiadomosc-tr-content-header").array().first {
+            return nested
+        }
+    }
+    return nil
+}
+
+func nearestPrecedingContentHeader(before element: Element) throws -> Element? {
+    var sibling = try element.previousElementSibling()
+    while let current = sibling {
+        if current.hasClass("wiadomosc-tr-header") {
+            return nil
+        }
+        if current.hasClass("wiadomosc-tr-content") {
+            return nil
+        }
+        if current.hasClass("wiadomosc-tr-content-header") {
+            return current
+        }
+        if let nested = try current.select(".wiadomosc-tr-content-header").array().last {
+            return nested
+        }
+        sibling = try current.previousElementSibling()
     }
 
-    return dates
+    var ancestor = element.parent()
+    while let parent = ancestor {
+        var uncle = try parent.previousElementSibling()
+        while let current = uncle {
+            if current.hasClass("wiadomosc-tr-header") {
+                return nil
+            }
+            if current.hasClass("wiadomosc-tr-content-header") {
+                return current
+            }
+            if let nested = try current.select(".wiadomosc-tr-content-header").array().last {
+                return nested
+            }
+            uncle = try current.previousElementSibling()
+        }
+        if parent.nodeName() == "table" { break }
+        ancestor = parent.parent()
+    }
+    return nil
 }
 
 private let messageBodySelectors = ".wiadomosc-nadawca, .wiadomosc-zawartosc-glowna, .wiadomosc-zawartosc-szczegoly"
@@ -444,22 +532,6 @@ func nextMessageContentHeader(after messageHeader: Element) throws -> Element? {
     return nil
 }
 
-func nearestPrecedingMessageHeader(before element: Element) throws -> Element? {
-    if let found = try lastMessageHeader(inPreviousSiblingsOf: element) {
-        return found
-    }
-
-    var ancestor = element.parent()
-    while let parent = ancestor {
-        if let found = try lastMessageHeader(inPreviousSiblingsOf: parent) {
-            return found
-        }
-        if parent.nodeName() == "table" { break }
-        ancestor = parent.parent()
-    }
-    return nil
-}
-
 private func firstContentHeader(inSiblingsStartingAt start: Element?) throws -> Element? {
     var sibling = start
     while let current = sibling {
@@ -476,20 +548,6 @@ private func firstContentHeader(inSiblingsStartingAt start: Element?) throws -> 
             return nil
         }
         sibling = try current.nextElementSibling()
-    }
-    return nil
-}
-
-private func lastMessageHeader(inPreviousSiblingsOf element: Element) throws -> Element? {
-    var sibling = try element.previousElementSibling()
-    while let current = sibling {
-        if current.hasClass("wiadomosc-tr-header") {
-            return current
-        }
-        if let nested = try current.select(".wiadomosc-tr-header").array().last {
-            return nested
-        }
-        sibling = try current.previousElementSibling()
     }
     return nil
 }
