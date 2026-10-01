@@ -44,14 +44,17 @@ struct ANS_CalendarTests {
         #expect(profile.name == "Jan Kowalski")
         #expect(profile.photoPath == "/ppuz-stud-app/ledge/view/stud.info.ZdjecieMojeView")
         #expect(absolutePortalURL(from: profile.photoPath ?? "")?.absoluteString == "https://wu.ans-nt.edu.pl/ppuz-stud-app/ledge/view/stud.info.ZdjecieMojeView")
-        #expect(profile.personal.contains(ProfileField(label: "Date of birth", value: "01.01.2000")))
-        #expect(profile.personal.contains(ProfileField(label: "Place of birth", value: "Kraków")))
+        #expect(profile.personal.contains(ProfileField(label: "Date of birth", value: "01.01.2000", isSensitive: true)))
+        #expect(profile.personal.contains(ProfileField(label: "Place of birth", value: "Kraków", isSensitive: true)))
+        #expect(profile.personal.contains(ProfileField(label: "PESEL", value: "00010112345", isSensitive: true)))
         #expect(profile.personal.contains(ProfileField(label: "Gender", value: "Male")))
+        #expect(profile.personal.contains(ProfileField(label: "University email", value: "10000@example.edu")))
         #expect(!profile.personal.contains { $0.label == "Father's name" })
         #expect(profile.studies.contains(ProfileField(label: "Login", value: "10000")))
         #expect(profile.studies.contains(ProfileField(label: "Dean's group", value: "IE1.1")))
-        #expect(profile.addresses.contains(ProfileField(label: "Home address", value: "Testowa 1, Kraków\n30-001\nPolska")))
-        #expect(profile.addresses.contains(ProfileField(label: "Temporary address", value: "No data")))
+        #expect(profile.addresses.contains(ProfileField(label: "Home address", value: "Testowa 1, Kraków\n30-001\nPolska", isSensitive: true)))
+        #expect(profile.addresses.contains(ProfileField(label: "Temporary address", value: "No data", isSensitive: true)))
+        #expect(profile.hasSensitiveFields)
     }
 
     @Test func progressPageParsesSemesterGrades() throws {

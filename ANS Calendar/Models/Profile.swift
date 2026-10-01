@@ -12,6 +12,7 @@ let ProfileDetailsURL = "stud.daneosobowe.DaneOsoboweTabView"
 struct ProfileField: Equatable {
     var label: String
     var value: String
+    var isSensitive = false
 }
 
 struct StudentProfile: Equatable {
@@ -23,6 +24,10 @@ struct StudentProfile: Equatable {
 
     var isEmpty: Bool {
         name.isEmpty && personal.isEmpty && studies.isEmpty && addresses.isEmpty
+    }
+
+    var hasSensitiveFields: Bool {
+        (personal + studies + addresses).contains(where: \.isSensitive)
     }
 }
 
@@ -58,10 +63,15 @@ private func profileFields(in document: SwiftSoup.Document, selector: String) th
     var fields: [ProfileField] = []
     var index = 0
     while index + 1 < rows.count {
-        let label = normalizedProfileLabel(try rows[index].text())
+        let labelText = try rows[index].text()
+        let label = normalizedProfileLabel(labelText)
         let value = normalizedProfileValue(try profileValueText(rows[index + 1]))
         if !label.isEmpty, let value {
-            fields.append(ProfileField(label: label, value: value))
+            fields.append(ProfileField(
+                label: label,
+                value: value,
+                isSensitive: sensitiveProfileKeys.contains(foldedProfileLabel(labelText))
+            ))
         }
         index += 2
     }
@@ -83,14 +93,22 @@ private func profileValueText(_ element: Element) throws -> String {
         .joined(separator: "\n")
 }
 
+private func foldedProfileLabel(_ raw: String) -> String {
+    var label = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if label.hasSuffix(":") {
+        label.removeLast()
+        label = label.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    return foldedPortalKey(label)
+}
+
 private func normalizedProfileLabel(_ raw: String) -> String {
     var label = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     if label.hasSuffix(":") {
         label.removeLast()
         label = label.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-    let key = foldedPortalKey(label)
-    return profileLabels[key] ?? label
+    return profileLabels[foldedPortalKey(label)] ?? label
 }
 
 private func normalizedProfileValue(_ raw: String) -> String? {
@@ -113,6 +131,20 @@ private func foldedPortalKey(_ text: String) -> String {
         .lowercased()
         .trimmingCharacters(in: .whitespacesAndNewlines)
 }
+
+private let sensitiveProfileKeys: Set<String> = [
+    "imie ojca",
+    "imie matki",
+    "data urodzenia",
+    "miejsce urodzenia",
+    "pesel",
+    "adres e-mail prywatny",
+    "telefon kontaktowy",
+    "wku",
+    "adres zamieszkania",
+    "adres tymczasowy",
+    "adres korespondencyjny"
+]
 
 private let profileLabels = [
     "imie ojca": "Father's name",

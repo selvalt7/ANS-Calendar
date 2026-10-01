@@ -8,6 +8,7 @@ import SwiftUI
 struct ProfileView: View {
     @EnvironmentObject private var api: VerbisAPI
     @StateObject private var model: ProfileModel
+    @State private var showsSensitiveData = false
 
     @MainActor
     init(model: ProfileModel? = nil) {
@@ -35,6 +36,21 @@ struct ProfileView: View {
                 }
             }
             .navigationTitle("Profile")
+            .toolbar {
+                if model.profile?.hasSensitiveFields == true {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showsSensitiveData.toggle()
+                        } label: {
+                            Label(
+                                showsSensitiveData ? "Hide" : "Show",
+                                systemImage: showsSensitiveData ? "eye.slash" : "eye"
+                            )
+                        }
+                        .accessibilityLabel(showsSensitiveData ? "Hide sensitive data" : "Show sensitive data")
+                    }
+                }
+            }
             .refreshable {
                 await model.load(api: api)
             }
@@ -90,15 +106,20 @@ struct ProfileView: View {
         if !fields.isEmpty {
             Section(title) {
                 ForEach(Array(fields.enumerated()), id: \.offset) { _, field in
+                    let isHidden = field.isSensitive && !showsSensitiveData
                     VStack(alignment: .leading, spacing: 4) {
                         Text(field.label)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(field.value)
+                        Text(isHidden ? "••••••••" : field.value)
                             .font(.body)
-                            .textSelection(.enabled)
+                            .textSelection(isHidden ? .disabled : .enabled)
+                            .privacySensitive(field.isSensitive)
                     }
                     .padding(.vertical, 2)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(field.label)
+                    .accessibilityValue(isHidden ? "Hidden" : field.value)
                 }
             }
         }
@@ -111,11 +132,11 @@ struct ProfileView: View {
         name: "Jan Kowalski",
         photoPath: nil,
         personal: [
-            ProfileField(label: "Date of birth", value: "01.01.2000"),
+            ProfileField(label: "Date of birth", value: "01.01.2000", isSensitive: true),
             ProfileField(label: "Gender", value: "Male")
         ],
         studies: [ProfileField(label: "Login", value: "10000")],
-        addresses: [ProfileField(label: "Home address", value: "Testowa 1\nKraków")]
+        addresses: [ProfileField(label: "Home address", value: "Testowa 1\nKraków", isSensitive: true)]
     )
     return ProfileView(model: model)
         .environmentObject(VerbisAPI())
