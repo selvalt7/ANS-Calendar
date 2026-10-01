@@ -154,9 +154,15 @@ func normalizeVerbisMessageDateText(_ raw: String) -> String {
     raw
         .replacingOccurrences(of: "\u{00A0}", with: " ")
         .replacingOccurrences(of: "\u{202F}", with: " ")
+        .replacingOccurrences(of: "\u{2007}", with: " ")
+        .replacingOccurrences(of: "\u{2009}", with: " ")
+        .replacingOccurrences(of: "\u{200A}", with: " ")
+        .replacingOccurrences(of: "\u{FF1A}", with: ":") // fullwidth colon
+        .replacingOccurrences(of: "\u{2236}", with: ":") // ratio colon
         .replacingOccurrences(of: ",", with: " ")
         .replacingOccurrences(of: "\n", with: " ")
         .replacingOccurrences(of: "\r", with: " ")
+        .replacingOccurrences(of: "\t", with: " ")
 }
 
 func verbisMessageTextHasClockTime(_ raw: String) -> Bool {

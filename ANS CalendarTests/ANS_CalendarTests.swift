@@ -319,6 +319,8 @@ struct ANS_CalendarTests {
         #expect(messages[0].Date != nil)
         #expect(messages[0].DateHasTime)
         #expect(verbisMessageDateText(messages[0].Date!) == "30.06.2026 13:04")
+        // Preview dates must not win over the content-header timestamp.
+        #expect(verbisMessageDateText(messages[0].Date!) != "01.01.2020 00:00")
 
         #expect(messages[1].Sender == "Jan Kowalski")
         #expect(messages[1].Date != nil)
@@ -377,16 +379,16 @@ struct ANS_CalendarTests {
         #expect(verbisMessageDateText(messages[1].Date!) == "01.05.2026 09:15")
     }
 
-    @Test func messageListIgnoresPreviewDatesAndKeepsDateOnlyWithoutMidnight() throws {
+    @Test func messageListKeepsDateOnlyFromSingleCellRowsWithoutMidnight() throws {
         let html = """
         <table>
           <tr class="wiadomosc-tr-header" data-vdo-dane-wiersza='{"typWiersza":"W","idWatku":99,"idSkrzynkiUczestnika":1,"idWszystkichWiadomosci":[1]}'>
             <td>
-              <div class="wiadomosc-nadawca">No Header Sender</div>
+              <div class="wiadomosc-nadawca">Single Cell Sender</div>
               <div class="wiadomosc-zawartosc-glowna">Subject</div>
-              <div class="wiadomosc-zawartosc-szczegoly">Body mentions 15.03.2025 only</div>
+              <div class="wiadomosc-zawartosc-szczegoly">Body mentions 01.01.2020 only</div>
+              <span>15.03.2025</span>
             </td>
-            <td>15.03.2025</td>
           </tr>
         </table>
         """

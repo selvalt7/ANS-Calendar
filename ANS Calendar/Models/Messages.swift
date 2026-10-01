@@ -256,7 +256,7 @@ class MessagesModel: ObservableObject {
 func parseMessageList(html: String) throws -> [Message] {
     let doc: Document = try SwiftSoup.parse(html)
     let messageHeaders = try doc.select(".wiadomosc-tr-header").array()
-    let datesByHeaderIndex = try timedDatesByMessageHeaderIndex(in: doc, messageHeaders: messageHeaders)
+    let datesByHeaderIndex = try contentHeaderDatesByMessageIndex(in: doc, messageHeaders: messageHeaders)
     var messages: [Message] = []
 
     for (index, messageHeader) in messageHeaders.enumerated() {
@@ -273,7 +273,7 @@ func parseMessageList(html: String) throws -> [Message] {
 
         let sentAt = try messageListDate(
             for: messageHeader,
-            timedContentHeaderDate: datesByHeaderIndex[index],
+            contentHeaderDate: datesByHeaderIndex[index],
             rowJSON: rowData
         )
 
@@ -292,27 +292,36 @@ func parseMessageList(html: String) throws -> [Message] {
     return messages
 }
 
-/// Prefer timed content-header dates, then a timed value from the list row, then date-only as a last resort.
+/// Prefer content-header dates (timed when available), then list-row / JSON fallbacks.
 func messageListDate(
     for messageHeader: Element,
-    timedContentHeaderDate: VerbisMessageDate?,
+    contentHeaderDate: VerbisMessageDate?,
     rowJSON: Data? = nil
 ) throws -> VerbisMessageDate? {
-    if let timedContentHeaderDate {
-        return timedContentHeaderDate
-    }
+    var best = contentHeaderDate
+
     if let siblingHeader = try nextMessageContentHeader(after: messageHeader),
-       let timed = try verbisMessageDateValue(in: siblingHeader),
-       timed.includesTime {
-        return timed
+       let siblingDate = try verbisMessageDateValue(in: siblingHeader) {
+        best = betterMessageDate(best, siblingDate)
     }
+
     if let rowJSON, let jsonDate = messageDate(fromRowJSON: rowJSON) {
-        return jsonDate
+        best = betterMessageDate(best, jsonDate)
     }
+
     if let listRowDate = try listRowMessageDate(in: messageHeader) {
-        return listRowDate
+        best = betterMessageDate(best, listRowDate)
     }
-    return nil
+
+    return best
+}
+
+func betterMessageDate(_ current: VerbisMessageDate?, _ candidate: VerbisMessageDate) -> VerbisMessageDate {
+    guard let current else { return candidate }
+    if candidate.includesTime && !current.includesTime {
+        return candidate
+    }
+    return current
 }
 
 /// Some Verbis row payloads include a send timestamp beside the ids we already decode.
@@ -320,7 +329,7 @@ func messageDate(fromRowJSON data: Data) -> VerbisMessageDate? {
     guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
 
     let preferredKeys = [
-        "dataWyslania", "dataNadania", "dataWiadomosci", "data",
+        "dataWyslania", "dataNadania", "dataWiadomosci",
         "czasWyslania", "timestamp", "dataUtworzenia"
     ]
     for key in preferredKeys {
@@ -330,9 +339,11 @@ func messageDate(fromRowJSON data: Data) -> VerbisMessageDate? {
     }
     for (key, value) in object {
         let lower = key.lowercased()
-        guard lower.contains("data") || lower.contains("czas") || lower.contains("time") || lower.contains("date") else {
+        // Avoid matching unrelated keys like typWiersza; require a clear date/time token.
+        guard lower.hasPrefix("data") || lower.hasPrefix("czas") || lower.contains("timestamp") || lower.hasSuffix("date") || lower.hasSuffix("time") else {
             continue
         }
+        if key == "data" { continue }
         if let parsed = messageDate(fromJSONValue: value) {
             return parsed
         }
@@ -354,43 +365,66 @@ private func messageDate(fromJSONValue value: Any) -> VerbisMessageDate? {
     return nil
 }
 
-/// Pair each content-header timestamp with the nearest preceding list row, including across tbody wrappers.
-func timedDatesByMessageHeaderIndex(in document: Document, messageHeaders: [Element]) throws -> [Int: VerbisMessageDate] {
+/// Pair content-header dates with list rows. Accept date-only; prefer timed values.
+func contentHeaderDatesByMessageIndex(in document: Document, messageHeaders: [Element]) throws -> [Int: VerbisMessageDate] {
     var dates: [Int: VerbisMessageDate] = [:]
-    for contentHeader in try document.select(".wiadomosc-tr-content-header").array() {
-        guard let timed = try verbisMessageDateValue(in: contentHeader), timed.includesTime else { continue }
-        guard let messageHeader = try nearestPrecedingMessageHeader(before: contentHeader) else { continue }
-        guard let index = messageHeaders.firstIndex(where: { $0 === messageHeader }) else { continue }
-        dates[index] = timed
-    }
-
-    // Fill gaps when DOM proximity misses a row but headers stay 1:1 in document order.
     let contentHeaders = try document.select(".wiadomosc-tr-content-header").array()
+
+    // Primary: document-order index pairing (stable when every row has a content header).
     for (index, contentHeader) in contentHeaders.enumerated() where index < messageHeaders.count {
-        guard dates[index] == nil else { continue }
-        if let timed = try verbisMessageDateValue(in: contentHeader), timed.includesTime {
-            dates[index] = timed
+        if let parsed = try verbisMessageDateValue(in: contentHeader) {
+            dates[index] = betterMessageDate(dates[index], parsed)
         }
     }
+
+    // Secondary: DOM proximity, including separate <tbody> wrappers.
+    for contentHeader in contentHeaders {
+        guard let parsed = try verbisMessageDateValue(in: contentHeader) else { continue }
+        guard let messageHeader = try nearestPrecedingMessageHeader(before: contentHeader) else { continue }
+        guard let index = messageHeaders.firstIndex(where: { $0 === messageHeader }) else { continue }
+        dates[index] = betterMessageDate(dates[index], parsed)
+    }
+
     return dates
 }
 
-/// Only read date cells from the list row — never title/preview text that may contain other dates.
+private let messageBodySelectors = ".wiadomosc-nadawca, .wiadomosc-zawartosc-glowna, .wiadomosc-zawartosc-szczegoly"
+
+/// Read dates from the list row while ignoring sender/title/preview text.
 func listRowMessageDate(in messageHeader: Element) throws -> VerbisMessageDate? {
+    var best: VerbisMessageDate?
+
     for floated in try messageHeader.select(".fltrt").array() {
         if let parsed = parseVerbisMessageDateValue(try floated.text()) {
-            return parsed
+            best = betterMessageDate(best, parsed)
         }
     }
 
-    let cells = try messageHeader.select("td").array()
-    guard cells.count > 1, let lastCell = cells.last else { return nil }
-    // Skip the subject/preview cell; the date is usually in a trailing column.
-    let hasMessageBody = try !lastCell.select(
-        ".wiadomosc-nadawca, .wiadomosc-zawartosc-glowna, .wiadomosc-zawartosc-szczegoly"
-    ).isEmpty()
-    guard !hasMessageBody else { return nil }
-    return parseVerbisMessageDateValue(try lastCell.text())
+    for cell in try messageHeader.select("td").array() {
+        if let parsed = try dateValue(in: cell, strippingBodyText: true) {
+            best = betterMessageDate(best, parsed)
+        }
+    }
+
+    if let parsed = try dateValue(in: messageHeader, strippingBodyText: true) {
+        best = betterMessageDate(best, parsed)
+    }
+
+    return best
+}
+
+private func dateValue(in element: Element, strippingBodyText: Bool) throws -> VerbisMessageDate? {
+    if !strippingBodyText {
+        return parseVerbisMessageDateValue(try element.text())
+    }
+
+    var text = try element.text()
+    for node in try element.select(messageBodySelectors).array() {
+        let bodyText = try node.text()
+        guard !bodyText.isEmpty else { continue }
+        text = text.replacingOccurrences(of: bodyText, with: " ")
+    }
+    return parseVerbisMessageDateValue(text)
 }
 
 func nextMessageContentHeader(after messageHeader: Element) throws -> Element? {
