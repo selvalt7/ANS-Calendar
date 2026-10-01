@@ -12,6 +12,48 @@ import Foundation
 struct ANS_CalendarTests {
     private let calendar = Calendar.ans
 
+    @Test func profilePageParsesPersonalData() throws {
+        let html = """
+        <div id="moj-profil-container">
+          <div class="person-data">
+            <div class="photo"><img alt="Twoja fotografia" src="/ppuz-stud-app/ledge/view/stud.info.ZdjecieMojeView"></div>
+            <div class="vdo-title big">Jan Kowalski</div>
+          </div>
+          <div class="person-info data">
+            <div>Imię ojca:</div><div class="large"></div>
+            <div>Data urodzenia:</div><div>01.01.2000</div>
+            <div>Miejsce urodzenia:</div><div class="large">Kraków</div>
+            <div>Płeć:</div><div class="large">Mężczyzna</div>
+            <div>PESEL:</div><div>00010112345</div>
+            <div>Adres e-mail uczelniany:</div><div>10000@example.edu</div>
+          </div>
+          <div class="jednostka-info data">
+            <div>Login:</div><div>10000</div>
+            <div>Grupa dziekańska:</div><div>IE1.1</div>
+            <div>Uczelnia:</div><div>Akademia Nauk Stosowanych</div>
+          </div>
+          <div class="addresses data">
+            <div>Adres zamieszkania:</div>
+            <div class="large"><p>Testowa 1, Kraków<br>30-001</p><p>Polska</p></div>
+            <div>Adres tymczasowy:</div>
+            <div class="large">Brak danych</div>
+          </div>
+        </div>
+        """
+        let profile = try parseStudentProfile(html: html)
+        #expect(profile.name == "Jan Kowalski")
+        #expect(profile.photoPath == "/ppuz-stud-app/ledge/view/stud.info.ZdjecieMojeView")
+        #expect(absolutePortalURL(from: profile.photoPath ?? "")?.absoluteString == "https://wu.ans-nt.edu.pl/ppuz-stud-app/ledge/view/stud.info.ZdjecieMojeView")
+        #expect(profile.personal.contains(ProfileField(label: "Date of birth", value: "01.01.2000")))
+        #expect(profile.personal.contains(ProfileField(label: "Place of birth", value: "Kraków")))
+        #expect(profile.personal.contains(ProfileField(label: "Gender", value: "Male")))
+        #expect(!profile.personal.contains { $0.label == "Father's name" })
+        #expect(profile.studies.contains(ProfileField(label: "Login", value: "10000")))
+        #expect(profile.studies.contains(ProfileField(label: "Dean's group", value: "IE1.1")))
+        #expect(profile.addresses.contains(ProfileField(label: "Home address", value: "Testowa 1, Kraków\n30-001\nPolska")))
+        #expect(profile.addresses.contains(ProfileField(label: "Temporary address", value: "No data")))
+    }
+
     @Test func messageDateIgnoresPolishWeekday() {
         let parsed = parseVerbisMessageDate("wtorek 30.06.2026 13:04")
         let calendar = Calendar.ans
