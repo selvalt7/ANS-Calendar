@@ -9,8 +9,9 @@ struct GradesView: View {
     @EnvironmentObject private var api: VerbisAPI
     @StateObject private var model: GradesModel
 
-    init(model: GradesModel = GradesModel()) {
-        _model = StateObject(wrappedValue: model)
+    @MainActor
+    init(model: GradesModel? = nil) {
+        _model = StateObject(wrappedValue: model ?? GradesModel())
     }
 
     var body: some View {

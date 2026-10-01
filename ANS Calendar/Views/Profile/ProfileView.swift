@@ -9,8 +9,9 @@ struct ProfileView: View {
     @EnvironmentObject private var api: VerbisAPI
     @StateObject private var model: ProfileModel
 
-    init(model: ProfileModel = ProfileModel()) {
-        _model = StateObject(wrappedValue: model)
+    @MainActor
+    init(model: ProfileModel? = nil) {
+        _model = StateObject(wrappedValue: model ?? ProfileModel())
     }
 
     var body: some View {
