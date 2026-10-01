@@ -292,6 +292,8 @@ func parseVerbisMessageDateValue(_ raw: String) -> VerbisMessageDate? {
         hour = 0
         minute = 0
         includesTime = false
+    } else if let short = parsePolishInboxListDate(text) {
+        return short
     } else {
         return nil
     }
@@ -305,6 +307,110 @@ func parseVerbisMessageDateValue(_ raw: String) -> VerbisMessageDate? {
     components.hour = hour
     components.minute = minute
     guard let date = Calendar.ans.date(from: components) else { return nil }
+    return VerbisMessageDate(date: date, includesTime: includesTime)
+}
+
+/// Inbox list cells use forms like "29 cze" or "29 cze 2026" inside `td.wiadomosc-data`.
+private let polishInboxMonthNumbers: [String: Int] = [
+    "sty": 1, "stycznia": 1, "styczen": 1,
+    "lut": 2, "lutego": 2, "luty": 2,
+    "mar": 3, "marca": 3, "marzec": 3,
+    "kwi": 4, "kwietnia": 4, "kwiecien": 4,
+    "maj": 5, "maja": 5,
+    "cze": 6, "czerwca": 6, "czerwiec": 6,
+    "lip": 7, "lipca": 7, "lipiec": 7,
+    "sie": 8, "sierpnia": 8, "sierpien": 8,
+    "wrz": 9, "wrzesnia": 9, "wrzesien": 9,
+    "paz": 10, "pazdziernika": 10, "pazdziernik": 10,
+    "lis": 11, "listopada": 11, "listopad": 11,
+    "gru": 12, "grudnia": 12, "grudzien": 12
+]
+
+func parsePolishInboxListDate(_ raw: String) -> VerbisMessageDate? {
+    let text = normalizeVerbisMessageDateText(raw)
+        .lowercased()
+        .folding(options: .diacriticInsensitive, locale: Locale(identifier: "pl_PL"))
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    if text == "dzis" || text == "dzisiaj" {
+        return VerbisMessageDate(date: Date().startOfDay, includesTime: false)
+    }
+    if text == "wczoraj" {
+        return VerbisMessageDate(date: Date().startOfDay.Yesterday, includesTime: false)
+    }
+
+    let day: Int
+    let monthToken: String
+    let year: Int?
+    let hour: Int?
+    let minute: Int?
+
+    if let match = text.firstMatch(of: /^(\d{1,2})\s+([a-z.]+)\s+(\d{4})\s+(\d{1,2}):(\d{2})$/),
+       let parsedDay = Int(match.1),
+       let parsedYear = Int(match.3),
+       let parsedHour = Int(match.4),
+       let parsedMinute = Int(match.5) {
+        day = parsedDay
+        monthToken = String(match.2)
+        year = parsedYear
+        hour = parsedHour
+        minute = parsedMinute
+    } else if let match = text.firstMatch(of: /^(\d{1,2})\s+([a-z.]+)\s+(\d{4})$/),
+              let parsedDay = Int(match.1),
+              let parsedYear = Int(match.3) {
+        day = parsedDay
+        monthToken = String(match.2)
+        year = parsedYear
+        hour = nil
+        minute = nil
+    } else if let match = text.firstMatch(of: /^(\d{1,2})\s+([a-z.]+)\s+(\d{1,2}):(\d{2})$/),
+              let parsedDay = Int(match.1),
+              let parsedHour = Int(match.3),
+              let parsedMinute = Int(match.4) {
+        day = parsedDay
+        monthToken = String(match.2)
+        year = nil
+        hour = parsedHour
+        minute = parsedMinute
+    } else if let match = text.firstMatch(of: /^(\d{1,2})\s+([a-z.]+)$/),
+              let parsedDay = Int(match.1) {
+        day = parsedDay
+        monthToken = String(match.2)
+        year = nil
+        hour = nil
+        minute = nil
+    } else {
+        return nil
+    }
+
+    guard (1...31).contains(day) else { return nil }
+    let normalizedMonth = monthToken.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+    guard let month = polishInboxMonthNumbers[normalizedMonth]
+            ?? polishInboxMonthNumbers[String(normalizedMonth.prefix(3))]
+    else { return nil }
+
+    let calendar = Calendar.ans
+    let resolvedYear = year ?? calendar.component(.year, from: Date())
+    let resolvedHour = hour ?? 0
+    let resolvedMinute = minute ?? 0
+    let includesTime = hour != nil
+
+    func makeDate(year: Int) -> Date? {
+        var components = DateComponents()
+        components.calendar = calendar
+        components.timeZone = calendar.timeZone
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = resolvedHour
+        components.minute = resolvedMinute
+        return calendar.date(from: components)
+    }
+
+    guard var date = makeDate(year: resolvedYear) else { return nil }
+    // List cells omit the year; if that lands more than a day in the future, use last year.
+    if year == nil, date > Date().addingTimeInterval(24 * 60 * 60), let previous = makeDate(year: resolvedYear - 1) {
+        date = previous
+    }
     return VerbisMessageDate(date: date, includesTime: includesTime)
 }
 

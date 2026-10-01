@@ -509,6 +509,18 @@ private let messageBodySelectors = ".wiadomosc-nadawca, .wiadomosc-zawartosc-glo
 func listRowMessageDate(in messageHeader: Element) throws -> VerbisMessageDate? {
     var best: VerbisMessageDate?
 
+    // Visible inbox stamp: <td class="wiadomosc-data">29 cze …</td>
+    for dataCell in try messageHeader.select("td.wiadomosc-data, .wiadomosc-data").array() {
+        // ownText skips the Dojo checkbox widget sitting in the same cell.
+        let ownText = dataCell.ownText()
+        if let parsed = parseVerbisMessageDateValue(ownText) {
+            best = betterMessageDate(best, parsed)
+        }
+        if let parsed = parseVerbisMessageDateValue(try dataCell.text()) {
+            best = betterMessageDate(best, parsed)
+        }
+    }
+
     for floated in try messageHeader.select(".fltrt").array() {
         if let parsed = parseVerbisMessageDateValue(try floated.text()) {
             best = betterMessageDate(best, parsed)
