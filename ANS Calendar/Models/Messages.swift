@@ -414,14 +414,14 @@ func contentHeaderDatesForMessageHeaders(_ messageHeaders: [Element], in documen
         let sender = normalizeMessageSenderText(try messageHeader.select(".wiadomosc-nadawca").array().first?.text() ?? "")
         if !sender.isEmpty,
            let rawIndex = rawPairs.indices.first(where: { !usedRaw.contains($0) && rawPairs[$0].sender == sender }) {
-            dates[index] = betterMessageDate(dates[index], rawPairs[rawIndex].date)
+            dates[index] = betterMessageDate(dates[index], rawPairs[rawIndex].stamp)
             usedRaw.insert(rawIndex)
             continue
         }
         if dates[index] == nil,
            let rawIndex = rawPairs.indices.first(where: { !usedRaw.contains($0) }) {
             // Preserve remaining markup order when sender labels differ slightly.
-            dates[index] = rawPairs[rawIndex].date
+            dates[index] = rawPairs[rawIndex].stamp
             usedRaw.insert(rawIndex)
         }
     }
