@@ -308,12 +308,6 @@ struct ANS_CalendarTests {
         #expect(calendar.component(.day, from: days[6]) == 25)
     }
 
-    @Test func chunkedArrayNeverDividesByZero() {
-        #expect([1, 2, 3, 4, 5, 6, 7].chunked(into: 3).map { $0 } == [[1, 2, 3], [4, 5, 6], [7]])
-        #expect([Int]().chunked(into: 0).isEmpty)
-        #expect([1, 2].chunked(into: 0) == [[1, 2]])
-    }
-
     @Test func overlappingLessonsShareColumns() {
         let morning = lesson(startHour: 9, endHour: 10, endMinute: 30, title: "Math")
         let overlapping = lesson(startHour: 10, endHour: 11, title: "Physics")

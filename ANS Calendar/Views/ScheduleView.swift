@@ -7,7 +7,6 @@ import SwiftUI
 
 enum CalendarLayout: String, CaseIterable {
     case daily = "Daily"
-    case multiDay = "Multi-Day"
     case monthly = "Monthly"
 }
 
@@ -62,39 +61,31 @@ struct ScheduleView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                switch currentLayout {
-                case .multiDay:
-                    ResponsiveWeekView()
+            VStack(spacing: 0) {
+                if currentLayout == .monthly {
+                    MonthCalendarView()
                         .environmentObject(model)
-                case .daily, .monthly:
-                    VStack(spacing: 0) {
-                        if currentLayout == .monthly {
-                            MonthCalendarView()
-                                .environmentObject(model)
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                        } else {
-                            TabbedWeek { week in
-                                WeekView(week: week)
-                            }
-                            .environmentObject(model)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                        }
-
-                        Divider()
-
-                        TabbedDay(onRefresh: reload) { day in
-                            DayView(
-                                date: day,
-                                schedules: model.schedules(on: day),
-                                isLoading: model.IsLoading,
-                                statusText: model.LoadError,
-                                onSelect: { selectedSchedule = $0 }
-                            )
-                        }
-                        .environmentObject(model)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                } else {
+                    TabbedWeek { week in
+                        WeekView(week: week)
                     }
+                    .environmentObject(model)
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
+
+                Divider()
+
+                TabbedDay(onRefresh: reload) { day in
+                    DayView(
+                        date: day,
+                        schedules: model.schedules(on: day),
+                        isLoading: model.IsLoading,
+                        statusText: model.LoadError,
+                        onSelect: { selectedSchedule = $0 }
+                    )
+                }
+                .environmentObject(model)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .bottom) {
@@ -129,27 +120,19 @@ struct ScheduleView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Picker("Layout", selection: $currentLayout) {
-                            Label("Daily", systemImage: "rectangle.grid.1x2")
-                                .tag(CalendarLayout.daily)
-                            Label("Multi-Day", systemImage: "rectangle.grid.3x2")
-                                .tag(CalendarLayout.multiDay)
-                            Label("Monthly", systemImage: "calendar")
-                                .tag(CalendarLayout.monthly)
-                        }
-                    } label: {
-                        Image(systemName: layoutIcon(for: currentLayout))
+                    Button(action: toggleMonth) {
+                        Image(systemName: currentLayout == .monthly ? "rectangle.grid.1x2" : "calendar")
                             .foregroundStyle(Color.accentColor)
                     }
+                    .accessibilityLabel(currentLayout == .monthly ? "Day" : "Month")
                 }
 
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Today") {
-                        model.SelectDay(day: Date())
+                if !isViewingToday {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Today") {
+                            model.SelectDay(day: Date())
+                        }
                     }
-                    .disabled(isViewingToday)
-                    .opacity(isViewingToday ? 0 : 1)
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: currentLayout)
@@ -169,12 +152,16 @@ struct ScheduleView: View {
         await model.LoadSchedule(VerbisANSApi: VerbisANSApi)
     }
 
-    private func layoutIcon(for layout: CalendarLayout) -> String {
-        switch layout {
-        case .daily: return "rectangle.grid.1x2"
-        case .multiDay: return "rectangle.grid.3x2"
-        case .monthly: return "calendar"
+    private func toggleMonth() {
+        if currentLayout == .monthly {
+            currentLayout = .daily
+            return
         }
+        let month = model.SelectedDay.startOfMonth
+        if !model.DisplayedMonth.IsSameMonth(date: month) {
+            model.DisplayedMonth = month
+        }
+        currentLayout = .monthly
     }
 }
 
