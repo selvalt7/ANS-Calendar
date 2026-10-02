@@ -46,6 +46,7 @@ struct MessagesView: View {
             .refreshable {
                 do {
                     Messages.Messages.removeAll()
+                    Offset = 0
                     try await Messages.FetchMessages(VerbisAnsAPI: VerbisANSApi)
                 } catch {
                     
