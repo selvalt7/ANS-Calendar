@@ -330,69 +330,58 @@ func parsePolishInboxListDate(_ raw: String) -> VerbisMessageDate? {
     let text = normalizeVerbisMessageDateText(raw)
         .lowercased()
         .folding(options: .diacriticInsensitive, locale: Locale(identifier: "pl_PL"))
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-    if text == "dzis" || text == "dzisiaj" {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed == "dzis" || trimmed == "dzisiaj" {
         return VerbisMessageDate(date: Date().startOfDay, includesTime: false)
     }
-    if text == "wczoraj" {
+    if trimmed == "wczoraj" {
         return VerbisMessageDate(date: Date().startOfDay.Yesterday, includesTime: false)
     }
 
-    let day: Int
-    let monthToken: String
-    let year: Int?
-    let hour: Int?
-    let minute: Int?
+    // Unanchored: portal cells often include checkbox/widget noise around "29 cze".
+    let pattern = try? NSRegularExpression(
+        pattern: #"(\d{1,2})\s+(sty|lut|mar|kwi|maj|cze|lip|sie|wrz|paz|lis|gru)[a-z]*(?:\s+(\d{4}))?(?:\s+(\d{1,2}):(\d{2}))?"#,
+        options: [.caseInsensitive]
+    )
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    guard let pattern,
+          let match = pattern.firstMatch(in: text, options: [], range: range),
+          let dayRange = Range(match.range(at: 1), in: text),
+          let monthRange = Range(match.range(at: 2), in: text),
+          let day = Int(text[dayRange]),
+          (1...31).contains(day)
+    else { return nil }
 
-    if let match = text.firstMatch(of: /^(\d{1,2})\s+([a-z.]+)\s+(\d{4})\s+(\d{1,2}):(\d{2})$/),
-       let parsedDay = Int(match.1),
-       let parsedYear = Int(match.3),
-       let parsedHour = Int(match.4),
-       let parsedMinute = Int(match.5) {
-        day = parsedDay
-        monthToken = String(match.2)
-        year = parsedYear
-        hour = parsedHour
-        minute = parsedMinute
-    } else if let match = text.firstMatch(of: /^(\d{1,2})\s+([a-z.]+)\s+(\d{4})$/),
-              let parsedDay = Int(match.1),
-              let parsedYear = Int(match.3) {
-        day = parsedDay
-        monthToken = String(match.2)
-        year = parsedYear
-        hour = nil
-        minute = nil
-    } else if let match = text.firstMatch(of: /^(\d{1,2})\s+([a-z.]+)\s+(\d{1,2}):(\d{2})$/),
-              let parsedDay = Int(match.1),
-              let parsedHour = Int(match.3),
-              let parsedMinute = Int(match.4) {
-        day = parsedDay
-        monthToken = String(match.2)
-        year = nil
-        hour = parsedHour
-        minute = parsedMinute
-    } else if let match = text.firstMatch(of: /^(\d{1,2})\s+([a-z.]+)$/),
-              let parsedDay = Int(match.1) {
-        day = parsedDay
-        monthToken = String(match.2)
-        year = nil
-        hour = nil
-        minute = nil
+    let monthToken = String(text[monthRange])
+    guard let month = polishInboxMonthNumbers[monthToken]
+            ?? polishInboxMonthNumbers[String(monthToken.prefix(3))]
+    else { return nil }
+
+    let year: Int?
+    if match.range(at: 3).location != NSNotFound, let yearRange = Range(match.range(at: 3), in: text) {
+        year = Int(text[yearRange])
     } else {
-        return nil
+        year = nil
     }
 
-    guard (1...31).contains(day) else { return nil }
-    let normalizedMonth = monthToken.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-    guard let month = polishInboxMonthNumbers[normalizedMonth]
-            ?? polishInboxMonthNumbers[String(normalizedMonth.prefix(3))]
-    else { return nil }
+    let hour: Int?
+    let minute: Int?
+    if match.range(at: 4).location != NSNotFound,
+       match.range(at: 5).location != NSNotFound,
+       let hourRange = Range(match.range(at: 4), in: text),
+       let minuteRange = Range(match.range(at: 5), in: text) {
+        hour = Int(text[hourRange])
+        minute = Int(text[minuteRange])
+    } else {
+        hour = nil
+        minute = nil
+    }
 
     let calendar = Calendar.ans
     let resolvedYear = year ?? calendar.component(.year, from: Date())
     let resolvedHour = hour ?? 0
     let resolvedMinute = minute ?? 0
-    let includesTime = hour != nil
+    let includesTime = hour != nil && minute != nil
 
     func makeDate(year: Int) -> Date? {
         var components = DateComponents()
@@ -407,11 +396,35 @@ func parsePolishInboxListDate(_ raw: String) -> VerbisMessageDate? {
     }
 
     guard var date = makeDate(year: resolvedYear) else { return nil }
-    // List cells omit the year; if that lands more than a day in the future, use last year.
     if year == nil, date > Date().addingTimeInterval(24 * 60 * 60), let previous = makeDate(year: resolvedYear - 1) {
         date = previous
     }
     return VerbisMessageDate(date: date, includesTime: includesTime)
+}
+
+/// Visible text from `td.wiadomosc-data`, ignoring Dojo checkbox widgets.
+func wiadomoscDataCellText(in messageHeader: Element) throws -> String? {
+    guard let cell = try messageHeader.select(".wiadomosc-data").array().first else { return nil }
+
+    var candidates: [String] = [cell.ownText()]
+    if let html = try? cell.html() {
+        let stripped = html.replacingOccurrences(
+            of: #"<[^>]+>"#,
+            with: " ",
+            options: .regularExpression
+        )
+        candidates.append(stripped)
+    }
+    candidates.append(try cell.text())
+
+    for candidate in candidates {
+        let cleaned = normalizeVerbisMessageDateText(candidate)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleaned.isEmpty {
+            return cleaned
+        }
+    }
+    return nil
 }
 
 /// Prefer the full element text so date and time split across child nodes still combine.

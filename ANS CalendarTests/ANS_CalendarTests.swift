@@ -417,10 +417,36 @@ struct ANS_CalendarTests {
         """
         let messages = try parseMessageList(html: html)
         #expect(messages.count == 1)
+        #expect(messages[0].DateLabel == "29 cze")
+        #expect(messages[0].dateDisplayText != nil)
         #expect(messages[0].Date != nil)
         #expect(!messages[0].DateHasTime)
         #expect(calendar.component(.day, from: messages[0].Date!) == 29)
         #expect(calendar.component(.month, from: messages[0].Date!) == 6)
+    }
+
+    @Test func polishInboxDateIgnoresCheckboxNoise() {
+        let parsed = parsePolishInboxListDate("29 cze on")
+        #expect(parsed != nil)
+        #expect(calendar.component(.day, from: parsed!.date) == 29)
+        #expect(calendar.component(.month, from: parsed!.date) == 6)
+
+        #expect(decodeMessageRowData("""
+        {
+            "typWiersza": "KONWERSACJA",
+            "idWatku": 17417,
+            "idSkrzynkiUczestnika": 24375,
+            "idWszystkichWiadomosci": [18187]
+        }
+        """)?.idWatku == 17417)
+        #expect(decodeMessageRowData("""
+        {
+            &quot;typWiersza&quot;: &quot;KONWERSACJA&quot;,
+            &quot;idWatku&quot;: 17417,
+            &quot;idSkrzynkiUczestnika&quot;: 24375,
+            &quot;idWszystkichWiadomosci&quot;: [18187]
+        }
+        """)?.idWatku == 17417)
     }
 
     @Test func messageListReadsDatesFromHiddenContentHeaders() throws {

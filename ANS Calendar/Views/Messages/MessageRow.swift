@@ -20,9 +20,11 @@ struct MessageRow: View {
                     Text(Message.Sender)
                         .font(.headline)
                     Spacer()
-                    if let sentAt = Message.Date {
-                        Text(verbisMessageDateText(sentAt, includeTime: Message.DateHasTime))
+                    if let dateText = Message.dateDisplayText {
+                        Text(dateText)
                             .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.trailing)
                     }
                 }
                 Text(Message.Title)

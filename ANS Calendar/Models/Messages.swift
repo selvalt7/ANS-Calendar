@@ -34,6 +34,16 @@ struct Message: Codable, Identifiable, Equatable {
     var Date: Date?
     /// False when only a calendar day was present (avoid showing a fake 00:00).
     var DateHasTime: Bool = false
+    /// Raw inbox label from `td.wiadomosc-data` (e.g. "29 cze") when useful as a fallback.
+    var DateLabel: String? = nil
+
+    var dateDisplayText: String? {
+        if let date = Date {
+            return verbisMessageDateText(date, includeTime: DateHasTime)
+        }
+        let label = DateLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return label.isEmpty ? nil : label
+    }
     
     static func == (lhs: Message, rhs: Message) -> Bool {
         return lhs.id == rhs.id
@@ -116,6 +126,9 @@ class MessagesModel: ObservableObject {
                               !(Messages[index].DateHasTime) {
                         Messages[index].Date = date
                         Messages[index].DateHasTime = true
+                    }
+                    if Messages[index].DateLabel == nil || Messages[index].DateLabel?.isEmpty == true {
+                        Messages[index].DateLabel = message.DateLabel
                     }
                 } else {
                     Messages.append(message)
@@ -282,44 +295,61 @@ func parseMessageList(html: String) throws -> [Message] {
 
     for (index, messageHeader) in messageHeaders.enumerated() {
         guard let sender = try messageHeader.select(".wiadomosc-nadawca").array().first?.text(),
-              let title = try messageHeader.select(".wiadomosc-zawartosc-glowna").array().first?.text(),
-              let preview = try messageHeader.select(".wiadomosc-zawartosc-szczegoly").array().first?.text()
+              let title = try messageHeader.select(".wiadomosc-zawartosc-glowna").array().first?.text()
         else { continue }
+        // Preview can be empty on some rows; don't drop the message.
+        let preview = (try? messageHeader.select(".wiadomosc-zawartosc-szczegoly").array().first?.text()) ?? ""
         let unread = messageHeader.hasClass("wiadomosci-nowe")
 
         let rawRow = try messageHeader.attr("data-vdo-dane-wiersza")
-        guard let rowData = rawRow.data(using: .utf8),
-              let messageData = try? JSONDecoder().decode(MessageData.self, from: rowData)
-        else { continue }
+        guard let messageData = decodeMessageRowData(rawRow) else { continue }
 
+        let listLabel = try wiadomoscDataCellText(in: messageHeader)
         let sentAt = try messageListDate(
             for: messageHeader,
             contentHeaderDate: contentHeaderDates[index],
-            rowJSON: rowData
+            rowJSON: rawRow.data(using: .utf8),
+            listLabel: listLabel
         )
 
         messages.append(
             Message(
-                Sender: sender,
-                Title: title,
+                Sender: sender.trimmingCharacters(in: .whitespacesAndNewlines),
+                Title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                 PreviewContent: preview,
                 Unread: unread,
                 MessageData: messageData,
                 Date: sentAt?.date,
-                DateHasTime: sentAt?.includesTime ?? false
+                DateHasTime: sentAt?.includesTime ?? false,
+                DateLabel: listLabel
             )
         )
     }
     return messages
 }
 
+func decodeMessageRowData(_ raw: String) -> MessageData? {
+    let cleaned = raw
+        .replacingOccurrences(of: "&quot;", with: "\"")
+        .replacingOccurrences(of: "&#34;", with: "\"")
+        .replacingOccurrences(of: "&amp;", with: "&")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let data = cleaned.data(using: .utf8) else { return nil }
+    return try? JSONDecoder().decode(MessageData.self, from: data)
+}
+
 /// Prefer each row's own content-header date (timed when available), then list-row / JSON fallbacks.
 func messageListDate(
     for messageHeader: Element,
     contentHeaderDate: VerbisMessageDate?,
-    rowJSON: Data? = nil
+    rowJSON: Data? = nil,
+    listLabel: String? = nil
 ) throws -> VerbisMessageDate? {
     var best = contentHeaderDate
+
+    if let listLabel, let listDate = parseVerbisMessageDateValue(listLabel) {
+        best = betterMessageDate(best, listDate)
+    }
 
     if let rowJSON, let jsonDate = messageDate(fromRowJSON: rowJSON) {
         best = betterMessageDate(best, jsonDate)
@@ -509,32 +539,19 @@ private let messageBodySelectors = ".wiadomosc-nadawca, .wiadomosc-zawartosc-glo
 func listRowMessageDate(in messageHeader: Element) throws -> VerbisMessageDate? {
     var best: VerbisMessageDate?
 
-    // Visible inbox stamp: <td class="wiadomosc-data">29 cze …</td>
-    for dataCell in try messageHeader.select("td.wiadomosc-data, .wiadomosc-data").array() {
-        // ownText skips the Dojo checkbox widget sitting in the same cell.
-        let ownText = dataCell.ownText()
-        if let parsed = parseVerbisMessageDateValue(ownText) {
-            best = betterMessageDate(best, parsed)
-        }
-        if let parsed = parseVerbisMessageDateValue(try dataCell.text()) {
-            best = betterMessageDate(best, parsed)
-        }
+    if let label = try wiadomoscDataCellText(in: messageHeader),
+       let parsed = parseVerbisMessageDateValue(label) {
+        best = betterMessageDate(best, parsed)
     }
 
     for floated in try messageHeader.select(".fltrt").array() {
+        // Skip checkbox widgets that also use fltrt in the date column.
+        if floated.hasClass("dijit") || floated.hasClass("dijitCheckBox") || floated.hasClass("wiadomosc-header-checkbox") {
+            continue
+        }
         if let parsed = parseVerbisMessageDateValue(try floated.text()) {
             best = betterMessageDate(best, parsed)
         }
-    }
-
-    for cell in try messageHeader.select("td").array() {
-        if let parsed = try dateValue(in: cell, strippingBodyText: true) {
-            best = betterMessageDate(best, parsed)
-        }
-    }
-
-    if let parsed = try dateValue(in: messageHeader, strippingBodyText: true) {
-        best = betterMessageDate(best, parsed)
     }
 
     return best
