@@ -326,6 +326,16 @@ struct ParkingTests {
         let otherDay = makeParkingForecast(day: day, groups: groups, meetings: meetings, assumptions: assumptions, now: date(year: 2026, month: 10, day: 2, hour: 10))
         let otherCopy = parkingBannerCopy(forecast: otherDay, now: date(year: 2026, month: 10, day: 2, hour: 10))
         #expect(otherCopy.title == "About 40–47 of 50 free around 09:40")
+        let light = makeParkingForecast(day: day, groups: groups, meetings: meetings, assumptions: assumptions, now: duringNow, includeAttendance: false)
+        #expect(light.peak.time == during.peak.time)
+        #expect(light.peak.cars == during.peak.cars)
+        #expect(light.peak.freeSpots == during.peak.freeSpots)
+        #expect(light.current?.studentHeadcount == during.current?.studentHeadcount)
+        #expect(light.hours.map(\.moment.time) == during.hours.map(\.moment.time))
+        #expect(light.hours.map(\.moment.cars) == during.hours.map(\.moment.cars))
+        #expect(light.peak.groups.isEmpty)
+        #expect(parkingTimeText(during.hours.first { $0.hour == 9 }!.moment.time) == "09:40")
+        #expect(parkingTimeText(during.hours.first { $0.hour == 10 }!.moment.time) == "10:00")
 
         let overflow = makeParkingForecast(
             day: day,
@@ -354,6 +364,26 @@ struct ParkingTests {
 
         let quiet = makeParkingForecast(day: day, groups: groups, meetings: [], assumptions: assumptions, now: duringNow)
         #expect(parkingBannerCopy(forecast: quiet, now: duringNow).subtitle == "No on-campus classes that day")
+    }
+
+    @Test func laterArrivalBecomesTheBusiestMinuteInThatHour() {
+        let day = date(year: 2026, month: 10, day: 1)
+        let assumptions = ParkingAssumptions(capacity: 100, driverShare: 1, lecturerCapacity: 10)
+        let forecast = makeParkingForecast(
+            day: day,
+            groups: [group(1, "A", 10), group(2, "B", 10)],
+            meetings: [
+                meeting(1, from: (10, 0), to: (12, 0), lecturer: 1),
+                meeting(2, from: (10, 30), to: (11, 30), lecturer: 2)
+            ],
+            assumptions: assumptions,
+            now: date(year: 2026, month: 10, day: 1, hour: 10, minute: 30),
+            includeAttendance: false
+        )
+        #expect(parkingTimeText(forecast.hours.first { $0.hour == 10 }!.moment.time) == "10:10")
+        #expect(forecast.hours.first { $0.hour == 10 }?.moment.studentHeadcount == 20)
+        #expect(parkingTimeText(forecast.hours.first { $0.hour == 11 }!.moment.time) == "11:00")
+        #expect(parkingTimeText(forecast.peak.time) == "10:10")
     }
 
     @Test func pressureFollowsHowMuchOfTheLotIsLeft() {

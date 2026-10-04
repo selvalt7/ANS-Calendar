@@ -38,6 +38,7 @@ final class ParkingModel: ObservableObject {
     @Published var isEnabled: Bool {
         didSet {
             UserDefaults.standard.set(isEnabled, forKey: ParkingSettings.enabledKey)
+            forecastCache.removeAll()
             if !isEnabled {
                 loadGeneration += 1
                 loadsInFlight = 0
@@ -53,6 +54,7 @@ final class ParkingModel: ObservableObject {
                 return
             }
             UserDefaults.standard.set(capacity, forKey: ParkingSettings.capacityKey)
+            forecastCache.removeAll()
         }
     }
     @Published var driverShare: Double {
@@ -63,6 +65,7 @@ final class ParkingModel: ObservableObject {
                 return
             }
             UserDefaults.standard.set(driverShare, forKey: ParkingSettings.driverShareKey)
+            forecastCache.removeAll()
         }
     }
     @Published var lecturerCapacity: Int {
@@ -73,6 +76,7 @@ final class ParkingModel: ObservableObject {
                 return
             }
             UserDefaults.standard.set(lecturerCapacity, forKey: ParkingSettings.lecturerCapacityKey)
+            forecastCache.removeAll()
         }
     }
 
@@ -82,6 +86,17 @@ final class ParkingModel: ObservableObject {
     private var groupsSemester: Int?
     private var loadsInFlight = 0
     private var loadGeneration = 0
+    private var forecastCache: [ForecastCacheKey: ParkingForecast] = [:]
+    private var fetchedGroupCountSink = 0
+
+    private struct ForecastCacheKey: Hashable {
+        let day: Date
+        let includeAttendance: Bool
+        let minute: Int?
+        let capacity: Int
+        let lecturerCapacity: Int
+        let driverShareThousandths: Int
+    }
 
     init() {
         let storedCapacity = UserDefaults.standard.object(forKey: ParkingSettings.capacityKey) as? Int
@@ -93,11 +108,33 @@ final class ParkingModel: ObservableObject {
         lecturerCapacity = Self.clampLecturerCapacity(storedStaff ?? ParkingDefaults.lecturerCapacity)
     }
 
+    /// Counts only. The day pager asks for this while scrolling, so it stays cached and skips class lists.
     func forecast(on day: Date, now: Date = Date()) -> ParkingForecast? {
+        cachedForecast(on: day, now: now, includeAttendance: false)
+    }
+
+    /// Group lists and the class each group is in. Built when a parking or lecture sheet opens.
+    func detailedForecast(on day: Date, now: Date = Date()) -> ParkingForecast? {
+        cachedForecast(on: day, now: now, includeAttendance: true)
+    }
+
+    private func cachedForecast(on day: Date, now: Date, includeAttendance: Bool) -> ParkingForecast? {
         let week = day.startOfWeek()
         guard loadedWeeks.contains(week) else { return nil }
-        return makeParkingForecast(
-            day: day,
+        let start = day.startOfDay
+        let key = ForecastCacheKey(
+            day: start,
+            includeAttendance: includeAttendance,
+            minute: start.IsSameDay(date: now) ? Int(now.timeIntervalSince1970 / 60) : nil,
+            capacity: capacity,
+            lecturerCapacity: lecturerCapacity,
+            driverShareThousandths: Int((driverShare * 1000).rounded())
+        )
+        if let cached = forecastCache[key] {
+            return cached
+        }
+        let built = makeParkingForecast(
+            day: start,
             groups: groups,
             meetings: meetingsByWeek[week] ?? [],
             assumptions: ParkingAssumptions(
@@ -106,8 +143,17 @@ final class ParkingModel: ObservableObject {
                 lecturerCapacity: lecturerCapacity
             ),
             now: now,
-            failedGroupFetches: failedByWeek[week] ?? 0
+            failedGroupFetches: failedByWeek[week] ?? 0,
+            includeAttendance: includeAttendance
         )
+        forecastCache[key] = built
+        return built
+    }
+
+    private func warmEstimates(weekStart: Date, now: Date) {
+        for day in weekStart.daysOfWeek() {
+            _ = forecast(on: day, now: now)
+        }
     }
 
     func classParking(for schedule: ScheduleInfo) -> ClassParkingInfo? {
@@ -149,6 +195,7 @@ final class ParkingModel: ObservableObject {
         let generation = loadGeneration
         loadError = nil
         fetchedGroupCount = 0
+        fetchedGroupCountSink = 0
         expectedGroupCount = 0
 
         do {
@@ -197,6 +244,8 @@ final class ParkingModel: ObservableObject {
             meetingsByWeek[weekStart] = collected.meetings
             failedByWeek[weekStart] = collected.failed
             loadedWeeks.insert(weekStart)
+            forecastCache.removeAll()
+            warmEstimates(weekStart: weekStart, now: Date())
             loadError = nil
             print("Parking: \(jobs.count - collected.failed) of \(jobs.count) groups, \(collected.meetings.count) meetings")
         } catch {
@@ -249,7 +298,10 @@ final class ParkingModel: ObservableObject {
                     group.cancelAll()
                     continue
                 }
-                fetchedGroupCount += 1
+                fetchedGroupCountSink += 1
+                if fetchedGroupCountSink == jobs.count || fetchedGroupCountSink.isMultiple(of: 12) {
+                    fetchedGroupCount = fetchedGroupCountSink
+                }
                 switch outcome {
                 case .meetings(let items):
                     meetings.append(contentsOf: items)

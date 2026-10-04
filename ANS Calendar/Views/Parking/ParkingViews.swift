@@ -33,13 +33,17 @@ struct ParkingDayBanner: View {
             .padding(.bottom, parking.isEnabled ? 4 : 8)
 
             if parking.isEnabled {
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    content(now: context.date)
+                if date.IsSameDay(date: Date()) {
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        content(now: context.date)
+                    }
+                } else {
+                    content(now: Date())
                 }
             }
         }
         .sheet(isPresented: $showDetail) {
-            if let forecast = parking.forecast(on: date) {
+            if let forecast = parking.detailedForecast(on: date) {
                 ParkingDetailSheet(forecast: forecast)
             }
         }

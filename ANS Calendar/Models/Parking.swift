@@ -388,19 +388,47 @@ func makeParkingForecast(
     now: Date,
     failedGroupFetches: Int = 0,
     fromHour: Int = dayStartHour,
-    toHour: Int = dayEndHour
+    toHour: Int = dayEndHour,
+    includeAttendance: Bool = true
 ) -> ParkingForecast {
     let stays = campusStays(on: day, groups: groups, meetings: meetings, assumptions: assumptions)
+    let points = occupancyPoints(from: stays)
+    let meetingsByGroup = includeAttendance ? indexMeetings(meetings) : [:]
+
     var hours: [ParkingHour] = []
     for hour in fromHour..<toHour {
-        guard let moment = busiestMoment(on: day, hour: hour, stays: stays, meetings: meetings, assumptions: assumptions) else { continue }
-        hours.append(ParkingHour(hour: hour, moment: moment))
+        guard let time = busiestTime(on: day, hour: hour, points: points, assumptions: assumptions) else { continue }
+        hours.append(ParkingHour(
+            hour: hour,
+            moment: moment(
+                at: time,
+                stays: stays,
+                points: points,
+                meetingsByGroup: meetingsByGroup,
+                assumptions: assumptions,
+                includeAttendance: includeAttendance
+            )
+        ))
     }
 
     let peak = hours.max(by: { $0.moment.cars < $1.moment.cars })?.moment
-        ?? parkingSnapshot(at: day.startOfDay, stays: stays, meetings: meetings, assumptions: assumptions)
+        ?? moment(
+            at: day.startOfDay,
+            stays: stays,
+            points: points,
+            meetingsByGroup: meetingsByGroup,
+            assumptions: assumptions,
+            includeAttendance: includeAttendance
+        )
     let current = now.IsSameDay(date: day)
-        ? parkingSnapshot(at: now, stays: stays, meetings: meetings, assumptions: assumptions)
+        ? moment(
+            at: now,
+            stays: stays,
+            points: points,
+            meetingsByGroup: meetingsByGroup,
+            assumptions: assumptions,
+            includeAttendance: includeAttendance
+        )
         : nil
 
     return ParkingForecast(
@@ -481,10 +509,106 @@ private func campusStays(
     return stays
 }
 
+private struct OccupancyPoint {
+    let time: Date
+    let headcount: Int
+    let lecturerCars: Int
+}
+
+private struct OccupancyEvent {
+    let time: Date
+    let headcountDelta: Int
+    let lecturerDelta: Int
+    let closesStay: Bool
+}
+
+/// Occupancy only changes when someone arrives or leaves, so the day is a sorted list of those instants.
+private func occupancyPoints(from stays: [CampusStay]) -> [OccupancyPoint] {
+    var events: [OccupancyEvent] = []
+    events.reserveCapacity(stays.count * 2)
+    for stay in stays {
+        let lecturerDelta = stay.lecturerID == nil ? 0 : 1
+        let headcountDelta = stay.group == nil ? 0 : stay.headcount
+        events.append(OccupancyEvent(time: stay.start, headcountDelta: headcountDelta, lecturerDelta: lecturerDelta, closesStay: false))
+        events.append(OccupancyEvent(time: stay.end, headcountDelta: -headcountDelta, lecturerDelta: -lecturerDelta, closesStay: true))
+    }
+    events.sort { lhs, rhs in
+        if lhs.time != rhs.time { return lhs.time < rhs.time }
+        if lhs.closesStay != rhs.closesStay { return lhs.closesStay }
+        return false
+    }
+
+    var points: [OccupancyPoint] = []
+    points.reserveCapacity(events.count)
+    var headcount = 0
+    var lecturerCars = 0
+    var index = 0
+    while index < events.count {
+        let time = events[index].time
+        while index < events.count, events[index].time == time {
+            headcount += events[index].headcountDelta
+            lecturerCars += events[index].lecturerDelta
+            index += 1
+        }
+        points.append(OccupancyPoint(time: time, headcount: headcount, lecturerCars: lecturerCars))
+    }
+    return points
+}
+
+private func occupancy(at time: Date, points: [OccupancyPoint]) -> (headcount: Int, lecturerCars: Int) {
+    var headcount = 0
+    var lecturerCars = 0
+    for point in points {
+        if point.time > time { break }
+        headcount = point.headcount
+        lecturerCars = point.lecturerCars
+    }
+    return (headcount, lecturerCars)
+}
+
+private func worstCars(headcount: Int, lecturerCars: Int, assumptions: ParkingAssumptions) -> Int {
+    parkingCase(
+        headcount: headcount,
+        lecturerPublicCars: lecturerPublicCars(onCampus: lecturerCars, privateSpaces: assumptions.lecturerCapacity),
+        capacity: max(0, assumptions.capacity),
+        driverShare: assumptions.driverShare,
+        peoplePerCar: ParkingDefaults.worstPeoplePerCar
+    ).cars
+}
+
+private func indexMeetings(_ meetings: [CampusMeeting]) -> [Int: [CampusMeeting]] {
+    var indexed: [Int: [CampusMeeting]] = [:]
+    for meeting in meetings where meeting.onCampus {
+        indexed[meeting.groupID, default: []].append(meeting)
+    }
+    return indexed
+}
+
+private func moment(
+    at time: Date,
+    stays: [CampusStay],
+    points: [OccupancyPoint],
+    meetingsByGroup: [Int: [CampusMeeting]],
+    assumptions: ParkingAssumptions,
+    includeAttendance: Bool
+) -> ParkingMoment {
+    if includeAttendance {
+        return parkingSnapshot(at: time, stays: stays, meetingsByGroup: meetingsByGroup, assumptions: assumptions)
+    }
+    let present = occupancy(at: time, points: points)
+    return makeMoment(
+        at: time,
+        headcount: present.headcount,
+        lecturerCars: present.lecturerCars,
+        groups: [],
+        assumptions: assumptions
+    )
+}
+
 private func parkingSnapshot(
     at time: Date,
     stays: [CampusStay],
-    meetings: [CampusMeeting],
+    meetingsByGroup: [Int: [CampusMeeting]],
     assumptions: ParkingAssumptions
 ) -> ParkingMoment {
     var headcount = 0
@@ -500,7 +624,7 @@ private func parkingSnapshot(
                     unit: group.unit,
                     program: group.program,
                     headcount: stay.headcount,
-                    activeClass: activeClass(for: group.id, at: time, meetings: meetings)
+                    activeClass: activeClass(for: group.id, at: time, meetingsByGroup: meetingsByGroup)
                 ))
             }
         }
@@ -512,8 +636,22 @@ private func parkingSnapshot(
         if lhs.headcount == rhs.headcount { return lhs.name < rhs.name }
         return lhs.headcount > rhs.headcount
     }
+    return makeMoment(
+        at: time,
+        headcount: headcount,
+        lecturerCars: lecturers.count,
+        groups: groups,
+        assumptions: assumptions
+    )
+}
 
-    let lecturerCars = lecturers.count
+private func makeMoment(
+    at time: Date,
+    headcount: Int,
+    lecturerCars: Int,
+    groups: [PresentGroup],
+    assumptions: ParkingAssumptions
+) -> ParkingMoment {
     let capacity = max(0, assumptions.capacity)
     let publicLecturers = lecturerPublicCars(onCampus: lecturerCars, privateSpaces: assumptions.lecturerCapacity)
     let worst = parkingCase(
@@ -563,40 +701,31 @@ func parkingCase(
     )
 }
 
-private func busiestMoment(
+private func busiestTime(
     on day: Date,
     hour: Int,
-    stays: [CampusStay],
-    meetings: [CampusMeeting],
+    points: [OccupancyPoint],
     assumptions: ParkingAssumptions
-) -> ParkingMoment? {
-    var samples: [Date] = []
-    for minute in stride(from: 0, to: 60, by: 5) {
-        if let time = dateOn(day, hour: hour, minute: minute) {
-            samples.append(time)
+) -> Date? {
+    guard let hourStart = dateOn(day, hour: hour, minute: 0),
+          let hourEnd = dateOn(day, hour: hour + 1, minute: 0) else { return nil }
+    let opening = occupancy(at: hourStart, points: points)
+    var bestTime = hourStart
+    var bestCars = worstCars(headcount: opening.headcount, lecturerCars: opening.lecturerCars, assumptions: assumptions)
+    for point in points where point.time >= hourStart && point.time < hourEnd {
+        let count = worstCars(headcount: point.headcount, lecturerCars: point.lecturerCars, assumptions: assumptions)
+        if count > bestCars {
+            bestCars = count
+            bestTime = point.time
         }
     }
-    if let hourStart = dateOn(day, hour: hour, minute: 0),
-       let hourEnd = dateOn(day, hour: hour + 1, minute: 0) {
-        for stay in stays where stay.start >= hourStart && stay.start < hourEnd {
-            samples.append(stay.start)
-        }
-    }
-    samples.sort()
-
-    var best: ParkingMoment?
-    for time in samples {
-        let moment = parkingSnapshot(at: time, stays: stays, meetings: meetings, assumptions: assumptions)
-        if best == nil || moment.cars > best?.cars ?? -1 {
-            best = moment
-        }
-    }
-    return best
+    return bestTime
 }
 
-private func activeClass(for groupID: Int, at time: Date, meetings: [CampusMeeting]) -> ActiveClass? {
+private func activeClass(for groupID: Int, at time: Date, meetingsByGroup: [Int: [CampusMeeting]]) -> ActiveClass? {
+    guard let meetings = meetingsByGroup[groupID] else { return nil }
     let current = meetings
-        .filter { $0.groupID == groupID && $0.onCampus && $0.start <= time && time < $0.end }
+        .filter { $0.start <= time && time < $0.end }
         .max { $0.start < $1.start }
     guard let current else { return nil }
     return ActiveClass(title: current.subject, room: current.room, start: current.start, end: current.end)
@@ -610,27 +739,22 @@ func classParkingInfo(
     assumptions: ParkingAssumptions
 ) -> ClassParkingInfo {
     let stays = campusStays(on: day, groups: groups, meetings: meetings, assumptions: assumptions)
+    let points = occupancyPoints(from: stays)
+    let meetingsByGroup = indexMeetings(meetings)
     let start = schedule.startDate
-    let end = max(schedule.endDate, start.addingTimeInterval(60))
-    var samples = [start]
-    var cursor = start.addingTimeInterval(10 * 60)
-    while cursor < end {
-        samples.append(cursor)
-        cursor = cursor.addingTimeInterval(10 * 60)
-    }
-    if end > start {
-        samples.append(end.addingTimeInterval(-60))
-    }
-
-    var moment = parkingSnapshot(at: start, stays: stays, meetings: meetings, assumptions: assumptions)
-    for time in samples where time >= start && time < end {
-        let sample = parkingSnapshot(at: time, stays: stays, meetings: meetings, assumptions: assumptions)
-        if sample.cars > moment.cars {
-            moment = sample
+    let windowEnd = max(schedule.endDate, start.addingTimeInterval(60))
+    let opening = occupancy(at: start, points: points)
+    var bestTime = start
+    var bestCars = worstCars(headcount: opening.headcount, lecturerCars: opening.lecturerCars, assumptions: assumptions)
+    for point in points where point.time >= start && point.time < windowEnd {
+        let count = worstCars(headcount: point.headcount, lecturerCars: point.lecturerCars, assumptions: assumptions)
+        if count > bestCars {
+            bestCars = count
+            bestTime = point.time
         }
     }
     return ClassParkingInfo(
-        moment: moment,
+        moment: parkingSnapshot(at: bestTime, stays: stays, meetingsByGroup: meetingsByGroup, assumptions: assumptions),
         crowd: lectureCrowd(for: schedule, groups: groups, meetings: meetings)
     )
 }
