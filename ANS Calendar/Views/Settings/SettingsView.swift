@@ -44,7 +44,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Parking")
                 } footer: {
-                    Text("Free spaces are estimated from the published schedules of every dean group. Set the lot size and the share of students you expect to arrive by car.")
+                    Text("Free spaces are estimated from the published schedules of every dean group. Worst case is one student per car. Best case is three students sharing a car. Set the lot size and the share of students you expect to arrive by car.")
                 }
 
                 Section {

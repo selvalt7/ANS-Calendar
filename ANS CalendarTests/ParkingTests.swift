@@ -232,9 +232,33 @@ struct ParkingTests {
             assumptions: ParkingAssumptions(capacity: 10, driverShare: 0.5)
         )
         #expect(three.studentCars == 1)
+        #expect(three.best.studentCars == 0)
         #expect(three.lecturerCars == 0)
         #expect(one.studentCars == 0)
         #expect(half.studentCars == 1)
+        #expect(half.best.studentCars == 0)
+    }
+
+    @Test func sharingACarFreesMoreSpacesThanDrivingAlone() {
+        let now = date(year: 2026, month: 10, day: 1, hour: 10)
+        let forecast = makeParkingForecast(
+            day: date(year: 2026, month: 10, day: 1),
+            groups: [group(1, "IE7.1", 30)],
+            meetings: [meeting(1, from: (10, 0), to: (11, 0), lecturer: 0)],
+            assumptions: ParkingAssumptions(capacity: 20, driverShare: 1),
+            now: now
+        )
+        let moment = forecast.current
+        #expect(moment?.worst == ParkingCase(peoplePerCar: 1, studentCars: 30, cars: 30, freeSpots: 0))
+        #expect(moment?.best == ParkingCase(peoplePerCar: 3, studentCars: 10, cars: 10, freeSpots: 10))
+        #expect(moment?.cars == 30)
+        #expect(moment?.freeSpots == 0)
+
+        let copy = parkingBannerCopy(forecast: forecast, now: now)
+        #expect(copy.title == "Full if one per car · 10 free if 3 share")
+        #expect(copy.pressure == .full)
+        #expect(parkingAssumptionsText(ParkingAssumptions(capacity: 20, driverShare: 1)).contains("Worst case is one student per car"))
+        #expect(parkingAssumptionsText(ParkingAssumptions(capacity: 20, driverShare: 1)).contains("Best case is 3 students sharing a car"))
     }
 
     @Test func bannerDescribesFreeSpacesNowAndAtThePeak() {
@@ -246,19 +270,21 @@ struct ParkingTests {
         let early = makeParkingForecast(day: day, groups: groups, meetings: meetings, assumptions: assumptions, now: date(year: 2026, month: 10, day: 1, hour: 8))
         let earlyCopy = parkingBannerCopy(forecast: early, now: date(year: 2026, month: 10, day: 1, hour: 8))
         #expect(earlyCopy.title == "Parking looks open now")
-        #expect(earlyCopy.subtitle == "Busiest around 09:40 · 39 of 50 free")
+        #expect(earlyCopy.subtitle == "Busiest around 09:40 · 39–46 of 50 free")
         #expect(earlyCopy.pressure == .open)
 
         let duringNow = date(year: 2026, month: 10, day: 1, hour: 10)
         let during = makeParkingForecast(day: day, groups: groups, meetings: meetings, assumptions: assumptions, now: duringNow)
         let duringCopy = parkingBannerCopy(forecast: during, now: duringNow)
-        #expect(duringCopy.title == "About 39 of 50 free now")
-        #expect(duringCopy.subtitle == "11 cars · 20 students, 1 lecturer")
+        #expect(during.current?.worst.freeSpots == 39)
+        #expect(during.current?.best.freeSpots == 46)
+        #expect(duringCopy.title == "About 39–46 of 50 free now")
+        #expect(duringCopy.subtitle == "Worst 11 cars · best 4 · 20 students, 1 lecturer")
         #expect(duringCopy.pressure == .open)
 
         let otherDay = makeParkingForecast(day: day, groups: groups, meetings: meetings, assumptions: assumptions, now: date(year: 2026, month: 10, day: 2, hour: 10))
         let otherCopy = parkingBannerCopy(forecast: otherDay, now: date(year: 2026, month: 10, day: 2, hour: 10))
-        #expect(otherCopy.title == "About 39 of 50 free around 09:40")
+        #expect(otherCopy.title == "About 39–46 of 50 free around 09:40")
 
         let overflow = makeParkingForecast(
             day: day,
@@ -268,7 +294,7 @@ struct ParkingTests {
             now: duringNow
         )
         let overflowCopy = parkingBannerCopy(forecast: overflow, now: duringNow)
-        #expect(overflowCopy.title == "Full now · 15 over capacity")
+        #expect(overflowCopy.title == "Full now · 2–15 over capacity")
         #expect(overflowCopy.pressure == .full)
         #expect(overflow.current?.freeSpots == 0)
 

@@ -17,6 +17,10 @@ enum ParkingDefaults {
     static let maximumCapacity = 400
     static let arrivalLead: TimeInterval = 20 * 60
     static let departureLag: TimeInterval = 15 * 60
+    /// One student per car: the fullest the lot gets for this many drivers.
+    static let worstPeoplePerCar = 1
+    /// Three students sharing a car: the most space that carpooling would free.
+    static let bestPeoplePerCar = 3
 }
 
 enum ParkingSettings {
@@ -75,14 +79,24 @@ struct PresentGroup: Identifiable, Equatable {
     let headcount: Int
 }
 
+struct ParkingCase: Equatable {
+    let peoplePerCar: Int
+    let studentCars: Int
+    let cars: Int
+    let freeSpots: Int
+}
+
 struct ParkingMoment: Equatable {
     let time: Date
+    /// Worst case: one student per car. Lecturers still take one space each.
     let cars: Int
     let freeSpots: Int
     let studentHeadcount: Int
     let studentCars: Int
     let lecturerCars: Int
     let groups: [PresentGroup]
+    let worst: ParkingCase
+    let best: ParkingCase
 }
 
 struct ParkingHour: Identifiable, Equatable {
@@ -276,17 +290,9 @@ func parkingBannerCopy(forecast: ParkingForecast, now: Date) -> ParkingBannerCop
     var subtitle: String
     if today, forecast.peak.cars > moment.cars {
         let time = parkingTimeText(forecast.peak.time)
-        if forecast.peak.freeSpots == 0 {
-            subtitle = "Busiest around \(time) · full"
-        } else {
-            subtitle = "Busiest around \(time) · \(forecast.peak.freeSpots) of \(forecast.assumptions.capacity) free"
-        }
+        subtitle = "Busiest around \(time) · \(parkingFreeText(forecast.peak, capacity: forecast.assumptions.capacity))"
     } else {
-        subtitle = "\(moment.cars) cars · \(moment.studentHeadcount) students"
-        if moment.lecturerCars > 0 {
-            let noun = moment.lecturerCars == 1 ? "lecturer" : "lecturers"
-            subtitle += ", \(moment.lecturerCars) \(noun)"
-        }
+        subtitle = parkingCarText(moment)
     }
     if forecast.failedGroupFetches > 0 {
         subtitle += " · \(forecast.failedGroupFetches) groups missing"
@@ -303,7 +309,32 @@ func parkingAssumptionsText(_ assumptions: ParkingAssumptions) -> String {
     let percent = Int((min(1, max(0, assumptions.driverShare)) * 100).rounded())
     let arrive = Int((assumptions.arrivalLead / 60).rounded())
     let leave = Int((assumptions.departureLag / 60).rounded())
-    return "People in a dean's group are counted from \(arrive) minutes before their first class until \(leave) minutes after their last class, including the gap between classes. The group size is the number after the group name. \(percent)% of those students are assumed to drive, one space each. Each lecturer on campus takes one space. Online classes are left out. The lot has \(assumptions.capacity) spaces, which you can change in Settings."
+    return "People in a dean's group are counted from \(arrive) minutes before their first class until \(leave) minutes after their last class, including the gap between classes. The group size is the number after the group name. \(percent)% of those students are assumed to come by car. Worst case is one student per car. Best case is \(ParkingDefaults.bestPeoplePerCar) students sharing a car. Each lecturer on campus takes one space either way. Online classes are left out. The lot has \(assumptions.capacity) spaces, which you can change in Settings."
+}
+
+func parkingFreeText(_ moment: ParkingMoment, capacity: Int) -> String {
+    if moment.worst.freeSpots == 0, moment.best.freeSpots == 0 {
+        return "full"
+    }
+    if moment.worst.freeSpots == moment.best.freeSpots {
+        return "\(moment.freeSpots) of \(capacity) free"
+    }
+    return "\(moment.worst.freeSpots)–\(moment.best.freeSpots) of \(capacity) free"
+}
+
+func parkingCarText(_ moment: ParkingMoment) -> String {
+    let people = "\(moment.studentHeadcount) students"
+    let lecturers: String
+    if moment.lecturerCars > 0 {
+        let noun = moment.lecturerCars == 1 ? "lecturer" : "lecturers"
+        lecturers = ", \(moment.lecturerCars) \(noun)"
+    } else {
+        lecturers = ""
+    }
+    if moment.worst.cars == moment.best.cars {
+        return "\(moment.cars) cars · \(people)\(lecturers)"
+    }
+    return "Worst \(moment.worst.cars) cars · best \(moment.best.cars) · \(people)\(lecturers)"
 }
 
 func makeParkingForecast(
@@ -433,19 +464,51 @@ private func parkingSnapshot(at time: Date, stays: [CampusStay], assumptions: Pa
         return lhs.headcount > rhs.headcount
     }
 
-    let share = min(1, max(0, assumptions.driverShare))
-    let studentCars = Int((Double(headcount) * share).rounded(.toNearestOrAwayFromZero))
     let lecturerCars = lecturers.count
-    let cars = studentCars + lecturerCars
     let capacity = max(0, assumptions.capacity)
+    let worst = parkingCase(
+        headcount: headcount,
+        lecturerCars: lecturerCars,
+        capacity: capacity,
+        driverShare: assumptions.driverShare,
+        peoplePerCar: ParkingDefaults.worstPeoplePerCar
+    )
+    let best = parkingCase(
+        headcount: headcount,
+        lecturerCars: lecturerCars,
+        capacity: capacity,
+        driverShare: assumptions.driverShare,
+        peoplePerCar: ParkingDefaults.bestPeoplePerCar
+    )
     return ParkingMoment(
         time: time,
-        cars: cars,
-        freeSpots: max(0, capacity - cars),
+        cars: worst.cars,
+        freeSpots: worst.freeSpots,
         studentHeadcount: headcount,
-        studentCars: studentCars,
+        studentCars: worst.studentCars,
         lecturerCars: lecturerCars,
-        groups: groups
+        groups: groups,
+        worst: worst,
+        best: best
+    )
+}
+
+func parkingCase(
+    headcount: Int,
+    lecturerCars: Int,
+    capacity: Int,
+    driverShare: Double,
+    peoplePerCar: Int
+) -> ParkingCase {
+    let riders = Double(max(0, headcount)) * min(1, max(0, driverShare))
+    let perCar = Double(max(peoplePerCar, 1))
+    let studentCars = Int((riders / perCar).rounded(.toNearestOrAwayFromZero))
+    let cars = studentCars + max(0, lecturerCars)
+    return ParkingCase(
+        peoplePerCar: max(peoplePerCar, 1),
+        studentCars: studentCars,
+        cars: cars,
+        freeSpots: max(0, max(0, capacity) - cars)
     )
 }
 
@@ -488,21 +551,35 @@ private func dateOn(_ day: Date, hour: Int, minute: Int) -> Date? {
 }
 
 func parkingBannerTitle(moment: ParkingMoment, capacity: Int, today: Bool) -> String {
-    if moment.cars == 0 {
+    if moment.worst.cars == 0 {
         return today ? "Parking looks open now" : "Parking looks open"
     }
     let time = parkingTimeText(moment.time)
-    if moment.freeSpots == 0 {
-        let overflow = moment.cars - max(capacity, 0)
-        if overflow > 0 {
+    if moment.worst.freeSpots == 0, moment.best.freeSpots == 0 {
+        let worstOver = moment.worst.cars - max(capacity, 0)
+        let bestOver = moment.best.cars - max(capacity, 0)
+        if worstOver > 0 {
+            let overflow = worstOver == bestOver ? "\(worstOver)" : "\(min(bestOver, worstOver))–\(max(bestOver, worstOver))"
             return today ? "Full now · \(overflow) over capacity" : "Full around \(time) · \(overflow) over capacity"
         }
         return today ? "Parking looks full now" : "Parking looks full around \(time)"
     }
-    if today {
-        return "About \(moment.freeSpots) of \(capacity) free now"
+    if moment.worst.freeSpots == 0 {
+        if today {
+            return "Full if one per car · \(moment.best.freeSpots) free if \(moment.best.peoplePerCar) share"
+        }
+        return "Full around \(time) if one per car · \(moment.best.freeSpots) free if cars are shared"
     }
-    return "About \(moment.freeSpots) of \(capacity) free around \(time)"
+    if moment.worst.freeSpots == moment.best.freeSpots {
+        if today {
+            return "About \(moment.freeSpots) of \(capacity) free now"
+        }
+        return "About \(moment.freeSpots) of \(capacity) free around \(time)"
+    }
+    if today {
+        return "About \(moment.worst.freeSpots)–\(moment.best.freeSpots) of \(capacity) free now"
+    }
+    return "About \(moment.worst.freeSpots)–\(moment.best.freeSpots) of \(capacity) free around \(time)"
 }
 
 private func jsonDictionary(from data: Data) throws -> [String: Any] {

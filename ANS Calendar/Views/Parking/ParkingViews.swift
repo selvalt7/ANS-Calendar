@@ -135,6 +135,8 @@ struct ParkingDetailSheet: View {
                         Text(headerDetail)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                        scenarioLine("Worst case", "One student per car", focus.worst)
+                        scenarioLine("Best case", "\(ParkingDefaults.bestPeoplePerCar) students per car", focus.best)
                         if forecast.failedGroupFetches > 0 {
                             Text("Schedules for \(forecast.failedGroupFetches) groups didn't load, so this can undercount the lot.")
                                 .font(.footnote)
@@ -212,7 +214,30 @@ struct ParkingDetailSheet: View {
 
     private var headerDetail: String {
         let moment = focus
-        return "\(moment.cars) cars · \(moment.studentCars) from students, \(moment.lecturerCars) from lecturers · \(moment.freeSpots) free"
+        if moment.lecturerCars > 0 {
+            let noun = moment.lecturerCars == 1 ? "lecturer" : "lecturers"
+            return "\(moment.studentHeadcount) students on campus · \(moment.lecturerCars) \(noun)"
+        }
+        return "\(moment.studentHeadcount) students on campus"
+    }
+
+    private func scenarioLine(_ title: String, _ detail: String, _ scenario: ParkingCase) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+            Text("\(detail) · \(scenarioSummary(scenario))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 4)
+    }
+
+    private func scenarioSummary(_ scenario: ParkingCase) -> String {
+        let capacity = forecast.assumptions.capacity
+        if scenario.cars > capacity {
+            return "\(scenario.cars) cars · \(scenario.cars - capacity) over capacity"
+        }
+        return "\(scenario.cars) cars · \(scenario.freeSpots) free"
     }
 
     private func hourRow(_ hour: ParkingHour) -> some View {
@@ -232,13 +257,20 @@ struct ParkingDetailSheet: View {
                         .scaleEffect(x: fill(for: hour.moment), y: 1, anchor: .leading)
                 }
                 .frame(height: 8)
-            Text("\(hour.moment.freeSpots) free")
+            Text(freeLabel(hour.moment))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
-                .frame(width: 64, alignment: .trailing)
+                .frame(width: 76, alignment: .trailing)
         }
         .padding(.vertical, 2)
-        .accessibilityLabel("\(hour.hour):00, \(hour.moment.freeSpots) spaces free, \(hour.moment.cars) cars")
+        .accessibilityLabel("\(hour.hour):00, \(freeLabel(hour.moment)), worst \(hour.moment.worst.cars) cars, best \(hour.moment.best.cars) cars")
+    }
+
+    private func freeLabel(_ moment: ParkingMoment) -> String {
+        if moment.worst.freeSpots == moment.best.freeSpots {
+            return "\(moment.freeSpots) free"
+        }
+        return "\(moment.worst.freeSpots)–\(moment.best.freeSpots) free"
     }
 
     private func fill(for moment: ParkingMoment) -> CGFloat {
