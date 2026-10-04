@@ -148,6 +148,7 @@ private struct DayPage<Content: View>: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
                 .background(.background)
+            ParkingDayBanner(date: date)
             Divider()
             ScrollViewReader { proxy in
                 ScrollView {
@@ -193,4 +194,5 @@ private struct DayPage<Content: View>: View {
             .frame(maxWidth: .infinity, minHeight: 400)
     }
     .environmentObject(ScheduleModel())
+    .environmentObject(ParkingModel())
 }

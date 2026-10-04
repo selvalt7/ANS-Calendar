@@ -7,6 +7,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var api: VerbisAPI
+    @EnvironmentObject private var parking: ParkingModel
     @Binding var showPasswordChangeSheet: Bool
 
     var body: some View {
@@ -22,6 +23,36 @@ struct SettingsView: View {
                             await api.Logout()
                         }
                     }
+                }
+
+                Section {
+                    Stepper(
+                        value: $parking.capacity,
+                        in: ParkingDefaults.minimumCapacity...ParkingDefaults.maximumCapacity,
+                        step: 10
+                    ) {
+                        LabeledContent("Public spaces", value: "\(parking.capacity)")
+                    }
+
+                    Stepper(
+                        value: $parking.lecturerCapacity,
+                        in: ParkingDefaults.minimumLecturerCapacity...ParkingDefaults.maximumLecturerCapacity,
+                        step: 5
+                    ) {
+                        LabeledContent("Staff spaces", value: "\(parking.lecturerCapacity)")
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        LabeledContent(
+                            "Students driving",
+                            value: "\(Int((parking.driverShare * 100).rounded()))%"
+                        )
+                        Slider(value: $parking.driverShare, in: 0...1, step: 0.05)
+                    }
+                } header: {
+                    Text("Parking")
+                } footer: {
+                    Text("Free spaces are estimated from the published schedules of every dean group. Lecturers use the staff lot first. When it is full, extra lecturers park in the public lot. Worst case is one student per car. Best case is three students sharing a car. These numbers stay here when the estimate is off. Turn it on or off from the schedule.")
                 }
 
                 Section {
@@ -76,4 +107,5 @@ struct DebugSettingsView: View {
 #Preview {
     SettingsView(showPasswordChangeSheet: .constant(false))
         .environmentObject(VerbisAPI())
+        .environmentObject(ParkingModel())
 }

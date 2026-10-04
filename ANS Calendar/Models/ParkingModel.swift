@@ -1,0 +1,332 @@
+//
+//  ParkingModel.swift
+//  ANS Calendar
+//
+
+import Foundation
+
+private struct MeetingFetchJob: Sendable {
+    let groupID: Int
+    let request: URLRequest
+}
+
+private enum MeetingFetchOutcome: Sendable {
+    case meetings([CampusMeeting])
+    case failed
+}
+
+private func fetchGroupMeetings(_ job: MeetingFetchJob) async -> MeetingFetchOutcome {
+    do {
+        let (data, response) = try await URLSession.shared.data(for: job.request)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            return .failed
+        }
+        let meetings = try parseGroupMeetings(data: data, groupID: job.groupID)
+        return .meetings(meetings)
+    } catch {
+        return .failed
+    }
+}
+
+@MainActor
+final class ParkingModel: ObservableObject {
+    @Published private(set) var groups: [DeanGroup] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var loadError: String?
+    @Published private(set) var fetchedGroupCount = 0
+    @Published private(set) var expectedGroupCount = 0
+    @Published var isEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(isEnabled, forKey: ParkingSettings.enabledKey)
+            forecastCache.removeAll()
+            if !isEnabled {
+                loadGeneration += 1
+                loadsInFlight = 0
+                isLoading = false
+            }
+        }
+    }
+    @Published var capacity: Int {
+        didSet {
+            let clamped = Self.clampCapacity(capacity)
+            if clamped != capacity {
+                capacity = clamped
+                return
+            }
+            UserDefaults.standard.set(capacity, forKey: ParkingSettings.capacityKey)
+            forecastCache.removeAll()
+        }
+    }
+    @Published var driverShare: Double {
+        didSet {
+            let clamped = Self.clampShare(driverShare)
+            if clamped != driverShare {
+                driverShare = clamped
+                return
+            }
+            UserDefaults.standard.set(driverShare, forKey: ParkingSettings.driverShareKey)
+            forecastCache.removeAll()
+        }
+    }
+    @Published var lecturerCapacity: Int {
+        didSet {
+            let clamped = Self.clampLecturerCapacity(lecturerCapacity)
+            if clamped != lecturerCapacity {
+                lecturerCapacity = clamped
+                return
+            }
+            UserDefaults.standard.set(lecturerCapacity, forKey: ParkingSettings.lecturerCapacityKey)
+            forecastCache.removeAll()
+        }
+    }
+
+    private var meetingsByWeek: [Date: [CampusMeeting]] = [:]
+    private var failedByWeek: [Date: Int] = [:]
+    private var loadedWeeks = Set<Date>()
+    private var groupsSemester: Int?
+    private var loadsInFlight = 0
+    private var loadGeneration = 0
+    private var forecastCache: [ForecastCacheKey: ParkingForecast] = [:]
+    private var fetchedGroupCountSink = 0
+
+    private struct ForecastCacheKey: Hashable {
+        let day: Date
+        let includeAttendance: Bool
+        let minute: Int?
+        let capacity: Int
+        let lecturerCapacity: Int
+        let driverShareThousandths: Int
+    }
+
+    init() {
+        let storedCapacity = UserDefaults.standard.object(forKey: ParkingSettings.capacityKey) as? Int
+        let storedShare = UserDefaults.standard.object(forKey: ParkingSettings.driverShareKey) as? Double
+        let storedStaff = UserDefaults.standard.object(forKey: ParkingSettings.lecturerCapacityKey) as? Int
+        isEnabled = UserDefaults.standard.bool(forKey: ParkingSettings.enabledKey)
+        capacity = Self.clampCapacity(storedCapacity ?? ParkingDefaults.capacity)
+        driverShare = Self.clampShare(storedShare ?? ParkingDefaults.driverShare)
+        lecturerCapacity = Self.clampLecturerCapacity(storedStaff ?? ParkingDefaults.lecturerCapacity)
+    }
+
+    /// Counts only. The day pager asks for this while scrolling, so it stays cached and skips class lists.
+    func forecast(on day: Date, now: Date = Date()) -> ParkingForecast? {
+        cachedForecast(on: day, now: now, includeAttendance: false)
+    }
+
+    /// Group lists and the class each group is in. Built when a parking or lecture sheet opens.
+    func detailedForecast(on day: Date, now: Date = Date()) -> ParkingForecast? {
+        cachedForecast(on: day, now: now, includeAttendance: true)
+    }
+
+    private func cachedForecast(on day: Date, now: Date, includeAttendance: Bool) -> ParkingForecast? {
+        let week = day.startOfWeek()
+        guard loadedWeeks.contains(week) else { return nil }
+        let start = day.startOfDay
+        let key = ForecastCacheKey(
+            day: start,
+            includeAttendance: includeAttendance,
+            minute: start.IsSameDay(date: now) ? Int(now.timeIntervalSince1970 / 60) : nil,
+            capacity: capacity,
+            lecturerCapacity: lecturerCapacity,
+            driverShareThousandths: Int((driverShare * 1000).rounded())
+        )
+        if let cached = forecastCache[key] {
+            return cached
+        }
+        let built = makeParkingForecast(
+            day: start,
+            groups: groups,
+            meetings: meetingsByWeek[week] ?? [],
+            assumptions: ParkingAssumptions(
+                capacity: capacity,
+                driverShare: driverShare,
+                lecturerCapacity: lecturerCapacity
+            ),
+            now: now,
+            failedGroupFetches: failedByWeek[week] ?? 0,
+            includeAttendance: includeAttendance
+        )
+        forecastCache[key] = built
+        return built
+    }
+
+    private func warmEstimates(weekStart: Date, now: Date) {
+        for day in weekStart.daysOfWeek() {
+            _ = forecast(on: day, now: now)
+        }
+    }
+
+    func classParking(for schedule: ScheduleInfo) -> ClassParkingInfo? {
+        guard isEnabled else { return nil }
+        let day = schedule.startDate
+        let week = day.startOfWeek()
+        guard loadedWeeks.contains(week) else { return nil }
+        return classParkingInfo(
+            for: schedule,
+            day: day,
+            groups: groups,
+            meetings: meetingsByWeek[week] ?? [],
+            assumptions: ParkingAssumptions(
+                capacity: capacity,
+                driverShare: driverShare,
+                lecturerCapacity: lecturerCapacity
+            )
+        )
+    }
+
+    func load(week: Date, api: VerbisAPI, force: Bool = false) async {
+        guard isEnabled else { return }
+        if api.SemesterID == 0 {
+            await api.GetSemesterID()
+        }
+        let weekStart = week.startOfWeek()
+        if !force, api.SemesterID != 0, groupsSemester == api.SemesterID, loadedWeeks.contains(weekStart) {
+            return
+        }
+
+        loadsInFlight += 1
+        isLoading = true
+        defer {
+            loadsInFlight = max(0, loadsInFlight - 1)
+            isLoading = loadsInFlight > 0
+        }
+
+        loadGeneration += 1
+        let generation = loadGeneration
+        loadError = nil
+        fetchedGroupCount = 0
+        fetchedGroupCountSink = 0
+        expectedGroupCount = 0
+
+        do {
+            if await !api.CheckAuthority() {
+                try await api.LoginExistingUser()
+            }
+            guard api.IsLoggedIn else { return }
+            if api.SemesterID == 0 {
+                await api.GetSemesterID()
+            }
+            let semesterID = api.SemesterID
+            guard semesterID != 0 else {
+                loadError = "Couldn't estimate parking."
+                return
+            }
+            guard generation == loadGeneration else { return }
+
+            if force || groupsSemester != semesterID || groups.isEmpty {
+                let loaded = try await fetchDeanGroups(semesterID: semesterID, api: api)
+                guard generation == loadGeneration else { return }
+                groups = loaded
+                groupsSemester = semesterID
+            }
+
+            let jobs = groups.map { group in
+                MeetingFetchJob(
+                    groupID: group.id,
+                    request: api.InitAJAXRequest(
+                        Service: planowanieService,
+                        Method: groupMeetingsMethod,
+                        JSONParams: groupMeetingsParams(groupID: group.id, weekStart: weekStart)
+                    )
+                )
+            }
+            expectedGroupCount = jobs.count
+            fetchedGroupCount = 0
+            let collected = await collectMeetings(jobs: jobs, generation: generation)
+            guard generation == loadGeneration else { return }
+
+            if !jobs.isEmpty, collected.failed == jobs.count {
+                loadError = "Couldn't estimate parking."
+                print("Parking: all \(jobs.count) group schedules failed")
+                return
+            }
+
+            meetingsByWeek[weekStart] = collected.meetings
+            failedByWeek[weekStart] = collected.failed
+            loadedWeeks.insert(weekStart)
+            forecastCache.removeAll()
+            warmEstimates(weekStart: weekStart, now: Date())
+            loadError = nil
+            print("Parking: \(jobs.count - collected.failed) of \(jobs.count) groups, \(collected.meetings.count) meetings")
+        } catch {
+            guard generation == loadGeneration else { return }
+            loadError = "Couldn't estimate parking."
+            print("Failed to estimate parking: \(error.localizedDescription)")
+        }
+    }
+
+    /// The portal lists dean groups in two steps: the faculty units under the root,
+    /// then the full tree for those units. Each dean group then has its own week of meetings.
+    private func fetchDeanGroups(semesterID: Int, api: VerbisAPI) async throws -> [DeanGroup] {
+        let rootData = try await post(
+            api: api,
+            method: semesterGroupsMethod,
+            params: rootGroupTreeParams(semesterID: semesterID)
+        )
+        let unitIDs = try parseOrganizationalUnitIDs(data: rootData)
+        guard !unitIDs.isEmpty else { return [] }
+        let treeData = try await post(
+            api: api,
+            method: semesterGroupsMethod,
+            params: semesterGroupTreeParams(semesterID: semesterID, unitIDs: unitIDs)
+        )
+        return try parseDeanGroups(data: treeData)
+    }
+
+    private func post(api: VerbisAPI, method: String, params: [String: Any]) async throws -> Data {
+        let request = api.InitAJAXRequest(Service: planowanieService, Method: method, JSONParams: params)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw ParkingError.badResponse
+        }
+        return data
+    }
+
+    private func collectMeetings(jobs: [MeetingFetchJob], generation: Int) async -> (meetings: [CampusMeeting], failed: Int) {
+        var meetings: [CampusMeeting] = []
+        var failed = 0
+        let limit = 6
+        await withTaskGroup(of: MeetingFetchOutcome.self) { group in
+            var next = 0
+            for _ in 0..<min(limit, jobs.count) {
+                let job = jobs[next]
+                next += 1
+                group.addTask { await fetchGroupMeetings(job) }
+            }
+            for await outcome in group {
+                if !isEnabled || generation != loadGeneration {
+                    group.cancelAll()
+                    continue
+                }
+                fetchedGroupCountSink += 1
+                if fetchedGroupCountSink == jobs.count || fetchedGroupCountSink.isMultiple(of: 12) {
+                    fetchedGroupCount = fetchedGroupCountSink
+                }
+                switch outcome {
+                case .meetings(let items):
+                    meetings.append(contentsOf: items)
+                case .failed:
+                    failed += 1
+                }
+                if next < jobs.count {
+                    let job = jobs[next]
+                    next += 1
+                    group.addTask { await fetchGroupMeetings(job) }
+                }
+            }
+        }
+        return (meetings, failed)
+    }
+
+    private static func clampCapacity(_ value: Int) -> Int {
+        min(ParkingDefaults.maximumCapacity, max(ParkingDefaults.minimumCapacity, value))
+    }
+
+    private static func clampShare(_ value: Double) -> Double {
+        min(1, max(0, value.isFinite ? value : ParkingDefaults.driverShare))
+    }
+
+    private static func clampLecturerCapacity(_ value: Int) -> Int {
+        min(ParkingDefaults.maximumLecturerCapacity, max(ParkingDefaults.minimumLecturerCapacity, value))
+    }
+}
