@@ -137,6 +137,9 @@ struct ParkingDetailSheet: View {
                             .foregroundStyle(.secondary)
                         scenarioLine("Worst case", "One student per car", focus.worst)
                         scenarioLine("Best case", "\(ParkingDefaults.bestPeoplePerCar) students per car", focus.best)
+                        Text(staffLotText(focus))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         if forecast.failedGroupFetches > 0 {
                             Text("Schedules for \(forecast.failedGroupFetches) groups didn't load, so this can undercount the lot.")
                                 .font(.footnote)
@@ -230,6 +233,23 @@ struct ParkingDetailSheet: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.top, 4)
+    }
+
+    private func staffLotText(_ moment: ParkingMoment) -> String {
+        let spaces = forecast.assumptions.lecturerCapacity
+        if moment.lecturerCars == 0 {
+            return spaces == 0 ? "No lecturers on campus" : "No lecturers on campus · staff lot is empty"
+        }
+        if spaces == 0 {
+            let noun = moment.lecturerCars == 1 ? "lecturer parks" : "lecturers park"
+            return "No staff lot · \(moment.lecturerCars) \(noun) in the public lot"
+        }
+        if moment.lecturerPublicCars == 0 {
+            let used = min(moment.lecturerCars, spaces)
+            return "Staff lot \(used) of \(spaces) used"
+        }
+        let noun = moment.lecturerPublicCars == 1 ? "lecturer" : "lecturers"
+        return "Staff lot full · \(moment.lecturerPublicCars) \(noun) in the public lot"
     }
 
     private func scenarioSummary(_ scenario: ParkingCase) -> String {

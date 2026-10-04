@@ -31,7 +31,15 @@ struct SettingsView: View {
                         in: ParkingDefaults.minimumCapacity...ParkingDefaults.maximumCapacity,
                         step: 10
                     ) {
-                        LabeledContent("Spaces", value: "\(parking.capacity)")
+                        LabeledContent("Public spaces", value: "\(parking.capacity)")
+                    }
+
+                    Stepper(
+                        value: $parking.lecturerCapacity,
+                        in: ParkingDefaults.minimumLecturerCapacity...ParkingDefaults.maximumLecturerCapacity,
+                        step: 5
+                    ) {
+                        LabeledContent("Staff spaces", value: "\(parking.lecturerCapacity)")
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -44,7 +52,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Parking")
                 } footer: {
-                    Text("Free spaces are estimated from the published schedules of every dean group. Worst case is one student per car. Best case is three students sharing a car. Set the lot size and the share of students you expect to arrive by car.")
+                    Text("Free spaces are estimated from the published schedules of every dean group. Lecturers use the staff lot first. When it is full, extra lecturers park in the public lot. Worst case is one student per car. Best case is three students sharing a car.")
                 }
 
                 Section {

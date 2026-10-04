@@ -55,6 +55,16 @@ final class ParkingModel: ObservableObject {
             UserDefaults.standard.set(driverShare, forKey: ParkingSettings.driverShareKey)
         }
     }
+    @Published var lecturerCapacity: Int {
+        didSet {
+            let clamped = Self.clampLecturerCapacity(lecturerCapacity)
+            if clamped != lecturerCapacity {
+                lecturerCapacity = clamped
+                return
+            }
+            UserDefaults.standard.set(lecturerCapacity, forKey: ParkingSettings.lecturerCapacityKey)
+        }
+    }
 
     private var meetingsByWeek: [Date: [CampusMeeting]] = [:]
     private var failedByWeek: [Date: Int] = [:]
@@ -66,8 +76,10 @@ final class ParkingModel: ObservableObject {
     init() {
         let storedCapacity = UserDefaults.standard.object(forKey: ParkingSettings.capacityKey) as? Int
         let storedShare = UserDefaults.standard.object(forKey: ParkingSettings.driverShareKey) as? Double
+        let storedStaff = UserDefaults.standard.object(forKey: ParkingSettings.lecturerCapacityKey) as? Int
         capacity = Self.clampCapacity(storedCapacity ?? ParkingDefaults.capacity)
         driverShare = Self.clampShare(storedShare ?? ParkingDefaults.driverShare)
+        lecturerCapacity = Self.clampLecturerCapacity(storedStaff ?? ParkingDefaults.lecturerCapacity)
     }
 
     func forecast(on day: Date, now: Date = Date()) -> ParkingForecast? {
@@ -77,7 +89,11 @@ final class ParkingModel: ObservableObject {
             day: day,
             groups: groups,
             meetings: meetingsByWeek[week] ?? [],
-            assumptions: ParkingAssumptions(capacity: capacity, driverShare: driverShare),
+            assumptions: ParkingAssumptions(
+                capacity: capacity,
+                driverShare: driverShare,
+                lecturerCapacity: lecturerCapacity
+            ),
             now: now,
             failedGroupFetches: failedByWeek[week] ?? 0
         )
@@ -224,5 +240,9 @@ final class ParkingModel: ObservableObject {
 
     private static func clampShare(_ value: Double) -> Double {
         min(1, max(0, value.isFinite ? value : ParkingDefaults.driverShare))
+    }
+
+    private static func clampLecturerCapacity(_ value: Int) -> Int {
+        min(ParkingDefaults.maximumLecturerCapacity, max(ParkingDefaults.minimumLecturerCapacity, value))
     }
 }

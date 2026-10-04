@@ -21,11 +21,16 @@ enum ParkingDefaults {
     static let worstPeoplePerCar = 1
     /// Three students sharing a car: the most space that carpooling would free.
     static let bestPeoplePerCar = 3
+    /// Staff lot. Lecturers park here first; overflow uses the public lot.
+    static let lecturerCapacity = 30
+    static let minimumLecturerCapacity = 0
+    static let maximumLecturerCapacity = 200
 }
 
 enum ParkingSettings {
     static let capacityKey = "ParkingCapacity"
     static let driverShareKey = "ParkingDriverShare"
+    static let lecturerCapacityKey = "ParkingLecturerCapacity"
 }
 
 enum ParkingError: Error, Equatable, LocalizedError {
@@ -51,6 +56,7 @@ enum ParkingPressure: Equatable {
 struct ParkingAssumptions: Equatable {
     var capacity: Int
     var driverShare: Double
+    var lecturerCapacity: Int = ParkingDefaults.lecturerCapacity
     var arrivalLead: TimeInterval = ParkingDefaults.arrivalLead
     var departureLag: TimeInterval = ParkingDefaults.departureLag
 }
@@ -88,12 +94,15 @@ struct ParkingCase: Equatable {
 
 struct ParkingMoment: Equatable {
     let time: Date
-    /// Worst case: one student per car. Lecturers still take one space each.
+    /// Worst case for the public lot: one student per car, plus lecturers who did not fit in the staff lot.
     let cars: Int
     let freeSpots: Int
     let studentHeadcount: Int
     let studentCars: Int
+    /// Lecturers teaching on campus.
     let lecturerCars: Int
+    /// Lecturers parked in the public lot after the staff lot filled up.
+    let lecturerPublicCars: Int
     let groups: [PresentGroup]
     let worst: ParkingCase
     let best: ParkingCase
@@ -309,7 +318,11 @@ func parkingAssumptionsText(_ assumptions: ParkingAssumptions) -> String {
     let percent = Int((min(1, max(0, assumptions.driverShare)) * 100).rounded())
     let arrive = Int((assumptions.arrivalLead / 60).rounded())
     let leave = Int((assumptions.departureLag / 60).rounded())
-    return "People in a dean's group are counted from \(arrive) minutes before their first class until \(leave) minutes after their last class, including the gap between classes. The group size is the number after the group name. \(percent)% of those students are assumed to come by car. Worst case is one student per car. Best case is \(ParkingDefaults.bestPeoplePerCar) students sharing a car. Each lecturer on campus takes one space either way. Online classes are left out. The lot has \(assumptions.capacity) spaces, which you can change in Settings."
+    let staff = assumptions.lecturerCapacity
+    let staffSentence = staff == 0
+        ? "There is no staff lot, so lecturers park in the public lot."
+        : "Lecturers park in a staff lot of \(staff) spaces first. When that lot is full, extra lecturers use the public lot."
+    return "People in a dean's group are counted from \(arrive) minutes before their first class until \(leave) minutes after their last class, including the gap between classes. The group size is the number after the group name. \(percent)% of those students are assumed to come by car. Worst case is one student per car. Best case is \(ParkingDefaults.bestPeoplePerCar) students sharing a car. \(staffSentence) Online classes are left out. The public lot has \(assumptions.capacity) spaces, which you can change in Settings."
 }
 
 func parkingFreeText(_ moment: ParkingMoment, capacity: Int) -> String {
@@ -324,17 +337,24 @@ func parkingFreeText(_ moment: ParkingMoment, capacity: Int) -> String {
 
 func parkingCarText(_ moment: ParkingMoment) -> String {
     let people = "\(moment.studentHeadcount) students"
-    let lecturers: String
-    if moment.lecturerCars > 0 {
-        let noun = moment.lecturerCars == 1 ? "lecturer" : "lecturers"
-        lecturers = ", \(moment.lecturerCars) \(noun)"
-    } else {
-        lecturers = ""
-    }
+    let lecturers = lecturerParkingText(moment)
     if moment.worst.cars == moment.best.cars {
         return "\(moment.cars) cars · \(people)\(lecturers)"
     }
     return "Worst \(moment.worst.cars) cars · best \(moment.best.cars) · \(people)\(lecturers)"
+}
+
+func lecturerParkingText(_ moment: ParkingMoment) -> String {
+    if moment.lecturerCars == 0 { return "" }
+    if moment.lecturerPublicCars == 0 {
+        return " · lecturers in the staff lot"
+    }
+    let noun = moment.lecturerPublicCars == 1 ? "lecturer" : "lecturers"
+    return ", \(moment.lecturerPublicCars) \(noun) in the public lot"
+}
+
+func lecturerPublicCars(onCampus: Int, privateSpaces: Int) -> Int {
+    max(0, onCampus - max(0, privateSpaces))
 }
 
 func makeParkingForecast(
@@ -466,16 +486,17 @@ private func parkingSnapshot(at time: Date, stays: [CampusStay], assumptions: Pa
 
     let lecturerCars = lecturers.count
     let capacity = max(0, assumptions.capacity)
+    let publicLecturers = lecturerPublicCars(onCampus: lecturerCars, privateSpaces: assumptions.lecturerCapacity)
     let worst = parkingCase(
         headcount: headcount,
-        lecturerCars: lecturerCars,
+        lecturerPublicCars: publicLecturers,
         capacity: capacity,
         driverShare: assumptions.driverShare,
         peoplePerCar: ParkingDefaults.worstPeoplePerCar
     )
     let best = parkingCase(
         headcount: headcount,
-        lecturerCars: lecturerCars,
+        lecturerPublicCars: publicLecturers,
         capacity: capacity,
         driverShare: assumptions.driverShare,
         peoplePerCar: ParkingDefaults.bestPeoplePerCar
@@ -487,6 +508,7 @@ private func parkingSnapshot(at time: Date, stays: [CampusStay], assumptions: Pa
         studentHeadcount: headcount,
         studentCars: worst.studentCars,
         lecturerCars: lecturerCars,
+        lecturerPublicCars: publicLecturers,
         groups: groups,
         worst: worst,
         best: best
@@ -495,7 +517,7 @@ private func parkingSnapshot(at time: Date, stays: [CampusStay], assumptions: Pa
 
 func parkingCase(
     headcount: Int,
-    lecturerCars: Int,
+    lecturerPublicCars: Int,
     capacity: Int,
     driverShare: Double,
     peoplePerCar: Int
@@ -503,7 +525,7 @@ func parkingCase(
     let riders = Double(max(0, headcount)) * min(1, max(0, driverShare))
     let perCar = Double(max(peoplePerCar, 1))
     let studentCars = Int((riders / perCar).rounded(.toNearestOrAwayFromZero))
-    let cars = studentCars + max(0, lecturerCars)
+    let cars = studentCars + max(0, lecturerPublicCars)
     return ParkingCase(
         peoplePerCar: max(peoplePerCar, 1),
         studentCars: studentCars,
