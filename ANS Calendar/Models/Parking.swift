@@ -76,6 +76,15 @@ struct CampusMeeting: Equatable, Sendable {
     let end: Date
     let onCampus: Bool
     let lecturerIDs: [Int]
+    let subject: String
+    let room: String
+}
+
+struct ActiveClass: Equatable {
+    let title: String
+    let room: String
+    let start: Date
+    let end: Date
 }
 
 struct PresentGroup: Identifiable, Equatable {
@@ -84,6 +93,17 @@ struct PresentGroup: Identifiable, Equatable {
     let unit: String?
     let program: String?
     let headcount: Int
+    let activeClass: ActiveClass?
+}
+
+struct LectureCrowd: Equatable {
+    let students: Int
+    let groups: [DeanGroup]
+}
+
+struct ClassParkingInfo: Equatable {
+    let moment: ParkingMoment
+    let crowd: LectureCrowd?
 }
 
 struct ParkingCase: Equatable {
@@ -242,7 +262,9 @@ func parseGroupMeetings(data: Data, groupID: Int) throws -> [CampusMeeting] {
             start: schedule.startDate,
             end: schedule.endDate,
             onCampus: meetingIsOnCampus(schedule),
-            lecturerIDs: schedule.wykladowcy.map(\.idProwadzacego)
+            lecturerIDs: schedule.wykladowcy.map(\.idProwadzacego),
+            subject: schedule.nazwaPelnaPrzedmiotu,
+            room: schedule.roomLabel
         ))
     }
     if !items.isEmpty, meetings.isEmpty {
@@ -371,14 +393,14 @@ func makeParkingForecast(
     let stays = campusStays(on: day, groups: groups, meetings: meetings, assumptions: assumptions)
     var hours: [ParkingHour] = []
     for hour in fromHour..<toHour {
-        guard let moment = busiestMoment(on: day, hour: hour, stays: stays, assumptions: assumptions) else { continue }
+        guard let moment = busiestMoment(on: day, hour: hour, stays: stays, meetings: meetings, assumptions: assumptions) else { continue }
         hours.append(ParkingHour(hour: hour, moment: moment))
     }
 
     let peak = hours.max(by: { $0.moment.cars < $1.moment.cars })?.moment
-        ?? parkingSnapshot(at: day.startOfDay, stays: stays, assumptions: assumptions)
+        ?? parkingSnapshot(at: day.startOfDay, stays: stays, meetings: meetings, assumptions: assumptions)
     let current = now.IsSameDay(date: day)
-        ? parkingSnapshot(at: now, stays: stays, assumptions: assumptions)
+        ? parkingSnapshot(at: now, stays: stays, meetings: meetings, assumptions: assumptions)
         : nil
 
     return ParkingForecast(
@@ -459,7 +481,12 @@ private func campusStays(
     return stays
 }
 
-private func parkingSnapshot(at time: Date, stays: [CampusStay], assumptions: ParkingAssumptions) -> ParkingMoment {
+private func parkingSnapshot(
+    at time: Date,
+    stays: [CampusStay],
+    meetings: [CampusMeeting],
+    assumptions: ParkingAssumptions
+) -> ParkingMoment {
     var headcount = 0
     var groups: [PresentGroup] = []
     var lecturers = Set<Int>()
@@ -472,7 +499,8 @@ private func parkingSnapshot(at time: Date, stays: [CampusStay], assumptions: Pa
                     name: group.name,
                     unit: group.unit,
                     program: group.program,
-                    headcount: stay.headcount
+                    headcount: stay.headcount,
+                    activeClass: activeClass(for: group.id, at: time, meetings: meetings)
                 ))
             }
         }
@@ -539,6 +567,7 @@ private func busiestMoment(
     on day: Date,
     hour: Int,
     stays: [CampusStay],
+    meetings: [CampusMeeting],
     assumptions: ParkingAssumptions
 ) -> ParkingMoment? {
     var samples: [Date] = []
@@ -557,12 +586,105 @@ private func busiestMoment(
 
     var best: ParkingMoment?
     for time in samples {
-        let moment = parkingSnapshot(at: time, stays: stays, assumptions: assumptions)
+        let moment = parkingSnapshot(at: time, stays: stays, meetings: meetings, assumptions: assumptions)
         if best == nil || moment.cars > best?.cars ?? -1 {
             best = moment
         }
     }
     return best
+}
+
+private func activeClass(for groupID: Int, at time: Date, meetings: [CampusMeeting]) -> ActiveClass? {
+    let current = meetings
+        .filter { $0.groupID == groupID && $0.onCampus && $0.start <= time && time < $0.end }
+        .max { $0.start < $1.start }
+    guard let current else { return nil }
+    return ActiveClass(title: current.subject, room: current.room, start: current.start, end: current.end)
+}
+
+func classParkingInfo(
+    for schedule: ScheduleInfo,
+    day: Date,
+    groups: [DeanGroup],
+    meetings: [CampusMeeting],
+    assumptions: ParkingAssumptions
+) -> ClassParkingInfo {
+    let stays = campusStays(on: day, groups: groups, meetings: meetings, assumptions: assumptions)
+    let start = schedule.startDate
+    let end = max(schedule.endDate, start.addingTimeInterval(60))
+    var samples = [start]
+    var cursor = start.addingTimeInterval(10 * 60)
+    while cursor < end {
+        samples.append(cursor)
+        cursor = cursor.addingTimeInterval(10 * 60)
+    }
+    if end > start {
+        samples.append(end.addingTimeInterval(-60))
+    }
+
+    var moment = parkingSnapshot(at: start, stays: stays, meetings: meetings, assumptions: assumptions)
+    for time in samples where time >= start && time < end {
+        let sample = parkingSnapshot(at: time, stays: stays, meetings: meetings, assumptions: assumptions)
+        if sample.cars > moment.cars {
+            moment = sample
+        }
+    }
+    return ClassParkingInfo(
+        moment: moment,
+        crowd: lectureCrowd(for: schedule, groups: groups, meetings: meetings)
+    )
+}
+
+func lectureCrowd(for schedule: ScheduleInfo, groups: [DeanGroup], meetings: [CampusMeeting]) -> LectureCrowd? {
+    let windowStart = schedule.startDate
+    let windowEnd = schedule.endDate
+    let overlapping = meetings.filter { meeting in
+        meeting.onCampus && meeting.end > windowStart && meeting.start < windowEnd
+    }
+    let subject = normalizedLabel(schedule.nazwaPelnaPrzedmiotu)
+    let room = normalizedRoom(schedule.roomLabel)
+    let subjectMatches = overlapping.filter { subjectsMatch($0.subject, subject) }
+    let roomMatches = room.isEmpty ? [] : overlapping.filter { normalizedRoom($0.room) == room }
+    let subjectAndRoom = subjectMatches.filter { normalizedRoom($0.room) == room && !room.isEmpty }
+    let matchedIDs: Set<Int>
+    if !subjectAndRoom.isEmpty {
+        matchedIDs = Set(subjectAndRoom.map(\.groupID))
+    } else if room.isEmpty, !subjectMatches.isEmpty {
+        matchedIDs = Set(subjectMatches.map(\.groupID))
+    } else if !roomMatches.isEmpty {
+        matchedIDs = Set(roomMatches.map(\.groupID))
+    } else if subjectMatches.count == 1 {
+        matchedIDs = Set(subjectMatches.map(\.groupID))
+    } else {
+        matchedIDs = []
+    }
+    let matched = groups.filter { matchedIDs.contains($0.id) && $0.headcount > 0 }
+    guard !matched.isEmpty else { return nil }
+    let ordered = matched.sorted { lhs, rhs in
+        if lhs.headcount == rhs.headcount { return lhs.name < rhs.name }
+        return lhs.headcount > rhs.headcount
+    }
+    return LectureCrowd(students: ordered.reduce(0) { $0 + $1.headcount }, groups: ordered)
+}
+
+private func subjectsMatch(_ subject: String, _ target: String) -> Bool {
+    let lhs = normalizedLabel(subject)
+    let rhs = normalizedLabel(target)
+    guard lhs.count >= 4, rhs.count >= 4 else { return false }
+    return lhs == rhs
+}
+
+private func normalizedLabel(_ value: String) -> String {
+    value.folding(options: .diacriticInsensitive, locale: .current)
+        .lowercased()
+        .split(whereSeparator: \.isWhitespace)
+        .joined(separator: " ")
+}
+
+private func normalizedRoom(_ value: String) -> String {
+    let room = normalizedLabel(value)
+    if room.isEmpty || room == "no room" { return "" }
+    return room
 }
 
 private func dateOn(_ day: Date, hour: Int, minute: Int) -> Date? {

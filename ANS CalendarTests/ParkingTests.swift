@@ -89,6 +89,8 @@ struct ParkingTests {
         #expect(meetings.count == 3)
         #expect(meetings[0].onCampus)
         #expect(meetings[0].lecturerIDs == [7])
+        #expect(meetings[0].subject == "Math")
+        #expect(meetings[0].room == "BT T.0.01")
         #expect(!meetings[1].onCampus)
         #expect(meetings[2].onCampus)
         #expect(meetings[2].lecturerIDs.isEmpty)
@@ -167,6 +169,7 @@ struct ParkingTests {
         #expect(midday?.cars == 10)
         #expect(midday?.freeSpots == 30)
         #expect(midday?.groups.map(\.name) == ["IE7.1"])
+        #expect(midday?.groups.first?.activeClass == nil)
         #expect(forecast.groupsWithClasses == 1)
 
         let beforeArrival = snapshot(on: day, atHour: 8, minute: 30, groups: [group(1775, "IE7.1", 10)], meetings: [
@@ -191,9 +194,9 @@ struct ParkingTests {
         let assumptions = ParkingAssumptions(capacity: 100, driverShare: 0.5, lecturerCapacity: 4)
         let groups = [group(1, "A", 20), group(2, "B", 10), group(3, "Remote", 100)]
         let meetings = [
-            meeting(1, from: (10, 0), to: (12, 0), lecturer: 7),
-            meeting(2, from: (10, 0), to: (11, 0), lecturer: 7),
-            meeting(3, from: (10, 0), to: (12, 0), lecturer: 9, onCampus: false)
+            meeting(1, from: (10, 0), to: (12, 0), lecturer: 7, subject: "Algorithms", room: "BT T.0.01"),
+            meeting(2, from: (10, 0), to: (11, 0), lecturer: 7, subject: "Lab", room: "BG 314"),
+            meeting(3, from: (10, 0), to: (12, 0), lecturer: 9, onCampus: false, subject: "Remote class")
         ]
         let during = snapshot(on: date(year: 2026, month: 10, day: 1), atHour: 10, minute: 30, groups: groups, meetings: meetings, assumptions: assumptions)
         let later = snapshot(on: date(year: 2026, month: 10, day: 1), atHour: 11, minute: 30, groups: groups, meetings: meetings, assumptions: assumptions)
@@ -204,6 +207,8 @@ struct ParkingTests {
         #expect(during.lecturerPublicCars == 0)
         #expect(during.cars == 15)
         #expect(during.groups.map(\.name) == ["A", "B"])
+        #expect(during.groups.first { $0.name == "A" }?.activeClass?.title == "Algorithms")
+        #expect(during.groups.first { $0.name == "B" }?.activeClass?.room == "BG 314")
         #expect(later.studentHeadcount == 20)
         #expect(later.lecturerCars == 1)
         #expect(later.cars == 10)
@@ -382,15 +387,83 @@ struct ParkingTests {
         from start: (Int, Int),
         to end: (Int, Int),
         lecturer: Int,
-        onCampus: Bool = true
+        onCampus: Bool = true,
+        subject: String = "",
+        room: String = ""
     ) -> CampusMeeting {
         CampusMeeting(
             groupID: groupID,
             start: date(year: 2026, month: 10, day: 1, hour: start.0, minute: start.1),
             end: date(year: 2026, month: 10, day: 1, hour: end.0, minute: end.1),
             onCampus: onCampus,
-            lecturerIDs: lecturer == 0 ? [] : [lecturer]
+            lecturerIDs: lecturer == 0 ? [] : [lecturer],
+            subject: subject,
+            room: room
         )
+    }
+
+    @Test func classDetailCountsTheMatchingLectureAndTheLot() {
+        let day = date(year: 2026, month: 10, day: 1)
+        let start = date(year: 2026, month: 10, day: 1, hour: 10)
+        let end = date(year: 2026, month: 10, day: 1, hour: 11, minute: 30)
+        let assumptions = ParkingAssumptions(capacity: 40, driverShare: 1, lecturerCapacity: 1)
+        let groups = [
+            DeanGroup(id: 1, name: "IE7.1", headcount: 10, program: "Informatyka ekonomiczna", unit: "IEZI"),
+            DeanGroup(id: 2, name: "RA1.1", headcount: 20, program: nil, unit: "IEZI")
+        ]
+        let meetings = [
+            meeting(1, from: (10, 0), to: (11, 30), lecturer: 4, subject: "Podstawy matematyki", room: "BT T.0.01"),
+            meeting(2, from: (10, 0), to: (11, 30), lecturer: 8, subject: "Podstawy matematyki", room: "BT T.0.01")
+        ]
+        let schedule = ScheduleInfo(
+            dataRozpoczecia: Int(start.timeIntervalSince1970 * 1000),
+            dataZakonczenia: Int(end.timeIntervalSince1970 * 1000),
+            nazwaPelnaPrzedmiotu: "Podstawy matematyki",
+            grupyZajeciowe: [],
+            grupySprawdzianu: [],
+            listaIdZajecInstancji: [],
+            sale: [RoomInfo(idSali: 1, nazwaSkrocona: "BT T.0.01")],
+            wykladowcy: []
+        )
+        let info = classParkingInfo(for: schedule, day: day, groups: groups, meetings: meetings, assumptions: assumptions)
+        #expect(info.crowd?.students == 30)
+        #expect(info.crowd?.groups.map(\.name) == ["RA1.1", "IE7.1"])
+        #expect(info.moment.studentHeadcount == 30)
+        #expect(info.moment.freeSpots == 9)
+        #expect(info.moment.groups.first?.activeClass?.title == "Podstawy matematyki")
+
+        let otherRoom = ScheduleInfo(
+            dataRozpoczecia: Int(start.timeIntervalSince1970 * 1000),
+            dataZakonczenia: Int(end.timeIntervalSince1970 * 1000),
+            nazwaPelnaPrzedmiotu: "Inny przedmiot",
+            grupyZajeciowe: [],
+            grupySprawdzianu: [],
+            listaIdZajecInstancji: [],
+            sale: [RoomInfo(idSali: 1, nazwaSkrocona: "BT T.0.01")],
+            wykladowcy: []
+        )
+        let byRoom = classParkingInfo(for: otherRoom, day: day, groups: groups, meetings: meetings, assumptions: assumptions)
+        #expect(byRoom.crowd?.students == 30)
+
+        let parallel = [
+            meeting(1, from: (10, 0), to: (11, 30), lecturer: 4, subject: "Podstawy matematyki", room: "BT T.0.01"),
+            meeting(2, from: (10, 0), to: (11, 30), lecturer: 8, subject: "Podstawy matematyki", room: "BG 200")
+        ]
+        let oneSection = classParkingInfo(for: schedule, day: day, groups: groups, meetings: parallel, assumptions: assumptions)
+        #expect(oneSection.crowd?.groups.map(\.name) == ["IE7.1"])
+        #expect(oneSection.crowd?.students == 10)
+
+        let unmatched = ScheduleInfo(
+            dataRozpoczecia: Int(start.timeIntervalSince1970 * 1000),
+            dataZakonczenia: Int(end.timeIntervalSince1970 * 1000),
+            nazwaPelnaPrzedmiotu: "Inny przedmiot",
+            grupyZajeciowe: [],
+            grupySprawdzianu: [],
+            listaIdZajecInstancji: [],
+            sale: [RoomInfo(idSali: 9, nazwaSkrocona: "BG 100")],
+            wykladowcy: []
+        )
+        #expect(classParkingInfo(for: unmatched, day: day, groups: groups, meetings: meetings, assumptions: assumptions).crowd == nil)
     }
 
     private func date(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0) -> Date {

@@ -110,6 +110,24 @@ final class ParkingModel: ObservableObject {
         )
     }
 
+    func classParking(for schedule: ScheduleInfo) -> ClassParkingInfo? {
+        guard isEnabled else { return nil }
+        let day = schedule.startDate
+        let week = day.startOfWeek()
+        guard loadedWeeks.contains(week) else { return nil }
+        return classParkingInfo(
+            for: schedule,
+            day: day,
+            groups: groups,
+            meetings: meetingsByWeek[week] ?? [],
+            assumptions: ParkingAssumptions(
+                capacity: capacity,
+                driverShare: driverShare,
+                lecturerCapacity: lecturerCapacity
+            )
+        )
+    }
+
     func load(week: Date, api: VerbisAPI, force: Bool = false) async {
         guard isEnabled else { return }
         if api.SemesterID == 0 {

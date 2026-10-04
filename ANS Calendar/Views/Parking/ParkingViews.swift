@@ -192,6 +192,9 @@ struct ParkingDetailSheet: View {
                                 Text(groupDetail(group))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                Text(lectureLine(group))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -329,6 +332,21 @@ struct ParkingDetailSheet: View {
             parts.append(program)
         }
         parts.append("\(group.headcount) students")
+        return parts.joined(separator: " · ")
+    }
+
+    private func lectureLine(_ group: PresentGroup) -> String {
+        guard let lecture = group.activeClass else {
+            return "Between classes, still counted on campus"
+        }
+        var parts: [String] = []
+        let title = lecture.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        parts.append(title.isEmpty ? "In class" : title)
+        let room = lecture.room.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !room.isEmpty, room != "No room" {
+            parts.append(room)
+        }
+        parts.append("\(parkingTimeText(lecture.start))–\(parkingTimeText(lecture.end))")
         return parts.joined(separator: " · ")
     }
 }
