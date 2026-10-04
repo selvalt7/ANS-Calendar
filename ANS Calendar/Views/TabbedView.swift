@@ -10,6 +10,7 @@ import SwiftUI
 struct TabbedView: View {
     @EnvironmentObject var VerbisANSApi: VerbisAPI
     @StateObject var Messages = MessagesModel()
+    @StateObject private var parking = ParkingModel()
     
     @State private var showPasswordChangeSheet = false;
     
@@ -17,6 +18,7 @@ struct TabbedView: View {
         TabView {
             Tab("Schedule", systemImage: "calendar") {
                 ScheduleView()
+                    .environmentObject(parking)
             }
             Tab("Messages", systemImage: "envelope") {
                 MessagesView()
@@ -32,11 +34,13 @@ struct TabbedView: View {
             }
             Tab("Settings", systemImage: "slider.horizontal.3") {
                 SettingsView(showPasswordChangeSheet: $showPasswordChangeSheet)
+                    .environmentObject(parking)
             }
         }
         .tabViewStyle(.tabBarOnly)
         .toolbarBackground(.ultraThinMaterial, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
+        .environmentObject(parking)
         // 3. Bind the sheet to BOTH the manual button press and the API error
         .sheet(isPresented: Binding(
             get: {

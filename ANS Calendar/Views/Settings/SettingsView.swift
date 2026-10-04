@@ -7,6 +7,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var api: VerbisAPI
+    @EnvironmentObject private var parking: ParkingModel
     @Binding var showPasswordChangeSheet: Bool
 
     var body: some View {
@@ -22,6 +23,28 @@ struct SettingsView: View {
                             await api.Logout()
                         }
                     }
+                }
+
+                Section {
+                    Stepper(
+                        value: $parking.capacity,
+                        in: ParkingDefaults.minimumCapacity...ParkingDefaults.maximumCapacity,
+                        step: 10
+                    ) {
+                        LabeledContent("Spaces", value: "\(parking.capacity)")
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        LabeledContent(
+                            "Students driving",
+                            value: "\(Int((parking.driverShare * 100).rounded()))%"
+                        )
+                        Slider(value: $parking.driverShare, in: 0...1, step: 0.05)
+                    }
+                } header: {
+                    Text("Parking")
+                } footer: {
+                    Text("Free spaces are estimated from the published schedules of every dean group. Set the lot size and the share of students you expect to arrive by car.")
                 }
 
                 Section {
@@ -76,4 +99,5 @@ struct DebugSettingsView: View {
 #Preview {
     SettingsView(showPasswordChangeSheet: .constant(false))
         .environmentObject(VerbisAPI())
+        .environmentObject(ParkingModel())
 }

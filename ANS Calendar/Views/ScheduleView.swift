@@ -50,6 +50,7 @@ private struct ObscuredBottomReader: UIViewRepresentable {
 
 struct ScheduleView: View {
     @EnvironmentObject var VerbisANSApi: VerbisAPI
+    @EnvironmentObject private var parking: ParkingModel
     @StateObject var model = ScheduleModel()
     @State private var currentLayout: CalendarLayout = .daily
     @State private var selectedSchedule: ScheduleInfo?
@@ -100,8 +101,15 @@ struct ScheduleView: View {
             .task {
                 await model.LoadSchedule(VerbisANSApi: VerbisANSApi)
             }
-            .onChange(of: model.SelectedWeek) { _, _ in
-                Task { await model.LoadSchedule(VerbisANSApi: VerbisANSApi) }
+            .task {
+                await parking.load(week: model.SelectedWeek, api: VerbisANSApi)
+            }
+            .onChange(of: model.SelectedWeek) { _, week in
+                Task {
+                    async let schedule: Void = model.LoadSchedule(VerbisANSApi: VerbisANSApi)
+                    async let spots: Void = parking.load(week: week, api: VerbisANSApi)
+                    _ = await (schedule, spots)
+                }
             }
             .onChange(of: model.DisplayedMonth) { _, month in
                 guard currentLayout == .monthly else { return }
@@ -149,7 +157,9 @@ struct ScheduleView: View {
         if currentLayout == .monthly {
             await model.LoadMonth(model.DisplayedMonth, VerbisANSApi: VerbisANSApi)
         }
-        await model.LoadSchedule(VerbisANSApi: VerbisANSApi)
+        async let schedule: Void = model.LoadSchedule(VerbisANSApi: VerbisANSApi)
+        async let spots: Void = parking.load(week: model.SelectedWeek, api: VerbisANSApi, force: true)
+        _ = await (schedule, spots)
     }
 
     private func toggleMonth() {
@@ -168,4 +178,5 @@ struct ScheduleView: View {
 #Preview {
     ScheduleView()
         .environmentObject(VerbisAPI())
+        .environmentObject(ParkingModel())
 }

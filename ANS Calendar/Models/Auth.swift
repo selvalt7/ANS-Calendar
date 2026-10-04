@@ -292,6 +292,12 @@ class VerbisAPI: ObservableObject {
         
         return request
     }
+
+    func InitAJAXRequest(Service: String, Method: String, JSONParams: [String: Any]) -> URLRequest {
+        var request = InitRequest(EndUrl: "AJAX")
+        request.httpBody = ajaxRequestBody(service: Service, method: Method, params: JSONParams)
+        return request
+    }
     
     func GetSemesterID() async {
         do {
