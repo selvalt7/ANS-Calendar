@@ -35,6 +35,16 @@ final class ParkingModel: ObservableObject {
     @Published private(set) var loadError: String?
     @Published private(set) var fetchedGroupCount = 0
     @Published private(set) var expectedGroupCount = 0
+    @Published var isEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(isEnabled, forKey: ParkingSettings.enabledKey)
+            if !isEnabled {
+                loadGeneration += 1
+                loadsInFlight = 0
+                isLoading = false
+            }
+        }
+    }
     @Published var capacity: Int {
         didSet {
             let clamped = Self.clampCapacity(capacity)
@@ -77,6 +87,7 @@ final class ParkingModel: ObservableObject {
         let storedCapacity = UserDefaults.standard.object(forKey: ParkingSettings.capacityKey) as? Int
         let storedShare = UserDefaults.standard.object(forKey: ParkingSettings.driverShareKey) as? Double
         let storedStaff = UserDefaults.standard.object(forKey: ParkingSettings.lecturerCapacityKey) as? Int
+        isEnabled = UserDefaults.standard.bool(forKey: ParkingSettings.enabledKey)
         capacity = Self.clampCapacity(storedCapacity ?? ParkingDefaults.capacity)
         driverShare = Self.clampShare(storedShare ?? ParkingDefaults.driverShare)
         lecturerCapacity = Self.clampLecturerCapacity(storedStaff ?? ParkingDefaults.lecturerCapacity)
@@ -100,6 +111,7 @@ final class ParkingModel: ObservableObject {
     }
 
     func load(week: Date, api: VerbisAPI, force: Bool = false) async {
+        guard isEnabled else { return }
         if api.SemesterID == 0 {
             await api.GetSemesterID()
         }
@@ -215,14 +227,16 @@ final class ParkingModel: ObservableObject {
                 group.addTask { await fetchGroupMeetings(job) }
             }
             for await outcome in group {
-                if generation == loadGeneration {
-                    fetchedGroupCount += 1
-                    switch outcome {
-                    case .meetings(let items):
-                        meetings.append(contentsOf: items)
-                    case .failed:
-                        failed += 1
-                    }
+                if !isEnabled || generation != loadGeneration {
+                    group.cancelAll()
+                    continue
+                }
+                fetchedGroupCount += 1
+                switch outcome {
+                case .meetings(let items):
+                    meetings.append(contentsOf: items)
+                case .failed:
+                    failed += 1
                 }
                 if next < jobs.count {
                     let job = jobs[next]

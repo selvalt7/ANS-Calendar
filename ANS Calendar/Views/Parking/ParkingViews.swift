@@ -19,12 +19,14 @@ struct ParkingDayBanner: View {
     @State private var showDetail = false
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            content(now: context.date)
-        }
-        .sheet(isPresented: $showDetail) {
-            if let forecast = parking.forecast(on: date) {
-                ParkingDetailSheet(forecast: forecast)
+        if parking.isEnabled {
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                content(now: context.date)
+            }
+            .sheet(isPresented: $showDetail) {
+                if let forecast = parking.forecast(on: date) {
+                    ParkingDetailSheet(forecast: forecast)
+                }
             }
         }
     }

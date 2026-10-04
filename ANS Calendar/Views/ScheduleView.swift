@@ -104,6 +104,10 @@ struct ScheduleView: View {
             .task {
                 await parking.load(week: model.SelectedWeek, api: VerbisANSApi)
             }
+            .onChange(of: parking.isEnabled) { _, enabled in
+                guard enabled else { return }
+                Task { await parking.load(week: model.SelectedWeek, api: VerbisANSApi) }
+            }
             .onChange(of: model.SelectedWeek) { _, week in
                 Task {
                     async let schedule: Void = model.LoadSchedule(VerbisANSApi: VerbisANSApi)

@@ -28,6 +28,7 @@ enum ParkingDefaults {
 }
 
 enum ParkingSettings {
+    static let enabledKey = "ParkingEstimateEnabled"
     static let capacityKey = "ParkingCapacity"
     static let driverShareKey = "ParkingDriverShare"
     static let lecturerCapacityKey = "ParkingLecturerCapacity"
