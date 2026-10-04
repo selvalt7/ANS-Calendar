@@ -25,9 +25,8 @@ struct SettingsView: View {
                     }
                 }
 
-                Section {
-                    Toggle("Parking estimate", isOn: $parking.isEnabled)
-                    if parking.isEnabled {
+                if parking.isEnabled {
+                    Section {
                         Stepper(
                             value: $parking.capacity,
                             in: ParkingDefaults.minimumCapacity...ParkingDefaults.maximumCapacity,
@@ -51,13 +50,11 @@ struct SettingsView: View {
                             )
                             Slider(value: $parking.driverShare, in: 0...1, step: 0.05)
                         }
+                    } header: {
+                        Text("Parking")
+                    } footer: {
+                        Text("Free spaces are estimated from the published schedules of every dean group. Lecturers use the staff lot first. When it is full, extra lecturers park in the public lot. Worst case is one student per car. Best case is three students sharing a car. Turn the estimate on or off from the schedule.")
                     }
-                } header: {
-                    Text("Parking")
-                } footer: {
-                    Text(parking.isEnabled
-                         ? "Free spaces are estimated from the published schedules of every dean group. Lecturers use the staff lot first. When it is full, extra lecturers park in the public lot. Worst case is one student per car. Best case is three students sharing a car."
-                         : "Turn this on to estimate free public spaces from other groups' classes.")
                 }
 
                 Section {

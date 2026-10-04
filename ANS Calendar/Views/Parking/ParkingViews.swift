@@ -19,14 +19,33 @@ struct ParkingDayBanner: View {
     @State private var showDetail = false
 
     var body: some View {
-        if parking.isEnabled {
-            TimelineView(.periodic(from: .now, by: 60)) { context in
-                content(now: context.date)
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: parking.isEnabled ? "car.fill" : "car")
+                    .foregroundStyle(parking.isEnabled ? Color.accentColor : Color.secondary)
+                Text("Parking estimate")
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 0)
+                Toggle("Parking estimate", isOn: $parking.isEnabled)
+                    .labelsHidden()
             }
-            .sheet(isPresented: $showDetail) {
-                if let forecast = parking.forecast(on: date) {
-                    ParkingDetailSheet(forecast: forecast)
+            .padding(.horizontal, 16)
+            .padding(.bottom, parking.isEnabled ? 4 : 8)
+
+            if parking.isEnabled {
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    content(now: context.date)
                 }
+            }
+        }
+        .sheet(isPresented: $showDetail) {
+            if let forecast = parking.forecast(on: date) {
+                ParkingDetailSheet(forecast: forecast)
+            }
+        }
+        .onChange(of: parking.isEnabled) { _, enabled in
+            if !enabled {
+                showDetail = false
             }
         }
     }
